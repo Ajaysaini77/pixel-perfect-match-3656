@@ -2,35 +2,38 @@
 Padosi authentication:
 Email + password, followed by a six-digit OTP sent over SMTP.
 
-Development storage is in memory.
-Replace USERS and OTPS with persistent storage before production.
+User accounts are persisted in the configured SQL database. OTPs remain
+short-lived, process-local state.
 """
 
 import hashlib
 import hmac
+import logging
 import os
 import secrets
 import smtplib
+import ssl
 import time
-
+from math import ceil
 from email.message import EmailMessage
 
 import bcrypt
 import jwt
-
 from dotenv import load_dotenv
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Cookie,
     Depends,
     HTTPException,
     Response,
 )
 from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy.orm import Session
+
+from database import get_db
+from models import User
 
 
-# Load environment variables from backend/.env
 load_dotenv()
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -44,9 +47,8 @@ OTP_TRIES = 5
 RESEND_GAP = 30
 SESSION_TTL = 7 * 24 * 3600
 
-# Development-only storage
-USERS: dict[str, dict] = {}
 OTPS: dict[str, dict] = {}
+logger = logging.getLogger(__name__)
 
 # Used to reduce timing differences for unknown users.
 DUMMY = bcrypt.hashpw(
@@ -73,7 +75,7 @@ def norm(email: str) -> str:
     return email.strip().lower()
 
 
-def send_mail(to: str, subject: str, body: str) -> None:
+def send_mail(to: str, subject: str, body: str) -> bool:
     """Send an email using configured SMTP credentials."""
 
     host = os.getenv("SMTP_HOST")
@@ -81,10 +83,15 @@ def send_mail(to: str, subject: str, body: str) -> None:
     # Development fallback: print email instead of sending it.
     if not host:
         print(f"[DEV MAIL] to={to} subject={subject}\n{body}")
-        return
+        return False
 
-    smtp_user = os.environ["SMTP_USER"]
-    smtp_password = os.environ["SMTP_PASS"]
+    smtp_user = os.getenv("SMTP_USER")
+    smtp_password = os.getenv("SMTP_PASS", "").replace(" ", "")
+    if not smtp_user or not smtp_password:
+        raise HTTPException(
+            status_code=503,
+            detail="Email delivery is not configured. Set SMTP_USER and SMTP_PASS in the backend environment.",
+        )
 
     message = EmailMessage()
     message["From"] = os.getenv("SMTP_FROM") or smtp_user
@@ -92,16 +99,38 @@ def send_mail(to: str, subject: str, body: str) -> None:
     message["Subject"] = subject
     message.set_content(body)
 
-    with smtplib.SMTP(
-        host,
-        int(os.getenv("SMTP_PORT", "587")),
-        timeout=15,
-    ) as server:
-        server.ehlo()
-        server.starttls()
-        server.ehlo()
-        server.login(smtp_user, smtp_password)
-        server.send_message(message)
+    try:
+        port = int(os.getenv("SMTP_PORT", "587"))
+        if port == 465:
+            with smtplib.SMTP_SSL(
+                host,
+                port,
+                timeout=15,
+                context=ssl.create_default_context(),
+            ) as server:
+                server.login(smtp_user, smtp_password)
+                server.send_message(message)
+        else:
+            with smtplib.SMTP(host, port, timeout=15) as server:
+                server.ehlo()
+                server.starttls(context=ssl.create_default_context())
+                server.ehlo()
+                server.login(smtp_user, smtp_password)
+                server.send_message(message)
+    except smtplib.SMTPAuthenticationError as exc:
+        logger.error("SMTP authentication was rejected by %s", host)
+        raise HTTPException(
+            status_code=503,
+            detail="Email delivery failed because the SMTP server rejected the credentials. Check SMTP_USER and SMTP_PASS; Gmail requires an active App Password.",
+        ) from exc
+    except (smtplib.SMTPException, OSError, ValueError) as exc:
+        logger.error("SMTP delivery failed through %s (%s)", host, type(exc).__name__)
+        raise HTTPException(
+            status_code=503,
+            detail="Could not send the verification email. Check SMTP_HOST, SMTP_PORT, TLS settings, and network access.",
+        ) from exc
+
+    return True
 
 
 def mac(email: str, otp: str) -> str:
@@ -114,27 +143,19 @@ def mac(email: str, otp: str) -> str:
     ).hexdigest()
 
 
-def issue_otp(email: str, bg: BackgroundTasks) -> None:
-    """Create an OTP and schedule its delivery."""
+def issue_otp(email: str) -> tuple[bool, int, bool]:
+    """Deliver an OTP and store it only after delivery succeeds."""
 
     now = time.time()
     old = OTPS.get(email)
 
     # Keep the existing OTP during the resend cooldown.
     if old and now - old["sent"] < RESEND_GAP:
-        return
+        return False, ceil(RESEND_GAP - (now - old["sent"])), True
 
     otp = f"{secrets.randbelow(10**6):06d}"
 
-    OTPS[email] = {
-        "h": mac(email, otp),
-        "exp": now + OTP_TTL,
-        "tries": 0,
-        "sent": now,
-    }
-
-    bg.add_task(
-        send_mail,
+    email_sent = send_mail(
         email,
         "Your Padosi verification code",
         (
@@ -143,69 +164,102 @@ def issue_otp(email: str, bg: BackgroundTasks) -> None:
             "If this wasn't you, ignore this email."
         ),
     )
+    OTPS[email] = {
+        "h": mac(email, otp),
+        "exp": now + OTP_TTL,
+        "tries": 0,
+        "sent": now,
+    }
+    return email_sent, RESEND_GAP, False
+
+
+def otp_response(email: str) -> dict[str, bool | int]:
+    email_sent, resend_after, cooldown = issue_otp(email)
+    return {
+        "otp_required": True,
+        "email_sent": email_sent,
+        "resend_after": resend_after,
+        "cooldown": cooldown,
+    }
 
 
 @router.post("/register")
-def register(c: Creds, bg: BackgroundTasks):
+def register(
+    c: Creds,
+    db: Session = Depends(get_db),
+):
     email = norm(str(c.email))
-    user = USERS.get(email)
+    user = db.query(User).filter(User.email == email).first()
 
-    if user and user["verified"]:
-        bg.add_task(
-            send_mail,
-            email,
-            "Padosi account",
-            "You already have a Padosi account. Please sign in instead.",
+    if user and user.is_verified:
+        raise HTTPException(
+            status_code=409,
+            detail="This email already has a verified account. Please sign in instead.",
         )
+
+    password_hash = bcrypt.hashpw(
+        c.password.encode(),
+        bcrypt.gensalt(),
+    ).decode("utf-8")
+
+    if user:
+        user.hashed_password = password_hash
     else:
-        USERS[email] = {
-            "pw": bcrypt.hashpw(
-                c.password.encode(),
-                bcrypt.gensalt(),
-            ),
-            "verified": False,
-        }
+        user = User(
+            email=email,
+            hashed_password=password_hash,
+            is_verified=False,
+        )
+        db.add(user)
 
-        issue_otp(email, bg)
+    db.commit()
+    return otp_response(email)
 
-    return {"otp_required": True}
 
 
 @router.post("/login")
-def login(c: Creds, bg: BackgroundTasks):
+def login(
+    c: Creds,
+    db: Session = Depends(get_db),
+):
     email = norm(str(c.email))
-    user = USERS.get(email)
+    user = db.query(User).filter(User.email == email).first()
 
-    password_hash = user["pw"] if user else DUMMY
-
+    password_hash = user.hashed_password.encode() if user else DUMMY
     password_ok = bcrypt.checkpw(
         c.password.encode(),
         password_hash,
     )
 
-    if not user or not password_ok or not user["verified"]:
+    if not user or not password_ok or not user.is_verified:
         raise HTTPException(
             status_code=401,
             detail="Wrong email or password.",
         )
 
-    issue_otp(email, bg)
-
-    return {"otp_required": True}
+    return otp_response(email)
 
 
 @router.post("/resend-otp")
-def resend(e: EmailOnly, bg: BackgroundTasks):
+def resend(
+    e: EmailOnly,
+    db: Session = Depends(get_db),
+):
     email = norm(str(e.email))
+    user = db.query(User).filter(User.email == email).first()
 
-    if email in USERS:
-        issue_otp(email, bg)
+    if user:
+        return otp_response(email)
 
     return {"otp_required": True}
 
 
 @router.post("/verify-otp")
-def verify(v: Verify, res: Response):
+def verify(
+    v: Verify,
+    res: Response,
+    db: Session = Depends(get_db),
+):
     email = norm(str(v.email))
     record = OTPS.get(email)
 
@@ -232,21 +286,23 @@ def verify(v: Verify, res: Response):
             detail="That code is wrong.",
         )
 
-    OTPS.pop(email, None)
-
-    user = USERS.get(email)
+    user = db.query(User).filter(User.email == email).first()
 
     if not user:
+        OTPS.pop(email, None)
         raise HTTPException(
             status_code=400,
             detail="Account not found. Please register again.",
         )
 
-    user["verified"] = True
+    OTPS.pop(email, None)
+    user.is_verified = True
+    db.commit()
+    db.refresh(user)
 
     token = jwt.encode(
         {
-            "sub": email,
+            "sub": str(user.id),
             "exp": int(time.time()) + SESSION_TTL,
         },
         JWT_SECRET,
@@ -263,32 +319,43 @@ def verify(v: Verify, res: Response):
         path="/",
     )
 
-    return {"email": email}
+    return {"id": user.id, "email": user.email}
 
 
 def current_user(
     token: str | None = Cookie(default=None, alias=COOKIE),
-) -> str:
+    db: Session = Depends(get_db),
+) -> User:
     try:
         if not token:
             raise ValueError("Missing token")
 
-        return jwt.decode(
+        payload = jwt.decode(
             token,
             JWT_SECRET,
             algorithms=["HS256"],
-        )["sub"]
+        )
+        user_id = int(payload["sub"])
+    except (jwt.InvalidTokenError, KeyError, TypeError, ValueError):
+        raise HTTPException(
+            status_code=401,
+            detail="Not signed in.",
+        ) from None
 
-    except Exception:
+    user = db.query(User).filter(User.id == user_id).first()
+
+    if not user:
         raise HTTPException(
             status_code=401,
             detail="Not signed in.",
         )
 
+    return user
+
 
 @router.get("/me")
-def me(email: str = Depends(current_user)):
-    return {"email": email}
+def me(user: User = Depends(current_user)):
+    return {"id": user.id, "email": user.email}
 
 
 @router.post("/logout")

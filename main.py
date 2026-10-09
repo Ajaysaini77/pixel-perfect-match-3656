@@ -1,13 +1,25 @@
+from contextlib import asynccontextmanager
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from data import LISTINGS
 from auth import router as auth_router
+from database import init_db
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
 
-app = FastAPI(title="Padosi API", version="0.1.0", description="Mock-data API for the Padosi hyperlocal discovery demo.")
+
+app = FastAPI(
+    title="Padosi API",
+    version="0.1.0",
+    description="Mock-data API for the Padosi hyperlocal discovery demo.",
+    lifespan=lifespan,
+)
 
 app.add_middleware(
     CORSMiddleware,
