@@ -15,7 +15,7 @@ import { setState, uid, useListings, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/listing/$id")({
-  validateSearch: (s: Record<string, unknown>): { action?: boolean } => ({ action: s.action === true || s.action === "true" ? true : undefined }),
+  validateSearch: (s: Record<string, unknown>): { action?: boolean | undefined } => ({ action: s["action"] === true || s["action"] === "true" ? true : undefined }),
   loader: ({ params }) => {
     const l = LISTINGS.find((x) => x.id === params.id);
     return { name: l?.name ?? "Listing", description: l?.description ?? "" };
@@ -68,7 +68,7 @@ function Detail() {
       ],
     }));
     setOpen(false);
-    toast.success(cat === "tutor" ? "Demo class requested!" : "Borrow request sent!", { description: `${l.owner} usually replies in ${trustBreakdown(l)[3].detail}.` });
+    toast.success(cat === "tutor" ? "Demo class requested!" : "Borrow request sent!", { description: `${l.owner} usually replies in ${trustBreakdown(l)[3]?.detail}.` });
   };
 
   return (

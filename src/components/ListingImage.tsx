@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 
 const ICON = { resource: Package, tutor: BookOpen, vendor: Store };
 
-export function ListingImage({ src, alt, category, className }: { src?: string; alt: string; category: Category; className?: string }) {
+export function ListingImage({ src, alt, category, className }: { src?: string | undefined; alt: string; category: Category; className?: string | undefined }) {
   const [broken, setBroken] = useState(!src);
   const Icon = ICON[category];
   if (broken)
