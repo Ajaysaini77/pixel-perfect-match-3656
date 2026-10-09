@@ -3,19 +3,20 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from data import LISTINGS
+from auth import router as auth_router
+
+
 
 app = FastAPI(title="Padosi API", version="0.1.0", description="Mock-data API for the Padosi hyperlocal discovery demo.")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(auth_router)
 
 class ListingCreate(BaseModel):
     name: str = Field(min_length=2, max_length=80)
