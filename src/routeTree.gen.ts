@@ -10,33 +10,141 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as BrowseRouteImport } from './routes/browse'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as ProfileRouteImport } from './routes/profile'
+import { Route as ProviderRouteImport } from './routes/provider'
+import { Route as VendorRouteImport } from './routes/vendor'
+import { Route as WelcomeRouteImport } from './routes/welcome'
+import { Route as ListingIdRouteImport } from './routes/listing.$id'
+import { Route as ReviewBookingIdRouteImport } from './routes/review.$bookingId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BrowseRoute = BrowseRouteImport.update({
+  id: '/browse',
+  path: '/browse',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProfileRoute = ProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProviderRoute = ProviderRouteImport.update({
+  id: '/provider',
+  path: '/provider',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VendorRoute = VendorRouteImport.update({
+  id: '/vendor',
+  path: '/vendor',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WelcomeRoute = WelcomeRouteImport.update({
+  id: '/welcome',
+  path: '/welcome',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ListingIdRoute = ListingIdRouteImport.update({
+  id: '/listing/$id',
+  path: '/listing/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReviewBookingIdRoute = ReviewBookingIdRouteImport.update({
+  id: '/review/$bookingId',
+  path: '/review/$bookingId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/browse': typeof BrowseRoute
+  '/login': typeof LoginRoute
+  '/profile': typeof ProfileRoute
+  '/provider': typeof ProviderRoute
+  '/vendor': typeof VendorRoute
+  '/welcome': typeof WelcomeRoute
+  '/listing/$id': typeof ListingIdRoute
+  '/review/$bookingId': typeof ReviewBookingIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/browse': typeof BrowseRoute
+  '/login': typeof LoginRoute
+  '/profile': typeof ProfileRoute
+  '/provider': typeof ProviderRoute
+  '/vendor': typeof VendorRoute
+  '/welcome': typeof WelcomeRoute
+  '/listing/$id': typeof ListingIdRoute
+  '/review/$bookingId': typeof ReviewBookingIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/browse': typeof BrowseRoute
+  '/login': typeof LoginRoute
+  '/profile': typeof ProfileRoute
+  '/provider': typeof ProviderRoute
+  '/vendor': typeof VendorRoute
+  '/welcome': typeof WelcomeRoute
+  '/listing/$id': typeof ListingIdRoute
+  '/review/$bookingId': typeof ReviewBookingIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/browse'
+    | '/login'
+    | '/profile'
+    | '/provider'
+    | '/vendor'
+    | '/welcome'
+    | '/listing/$id'
+    | '/review/$bookingId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/browse'
+    | '/login'
+    | '/profile'
+    | '/provider'
+    | '/vendor'
+    | '/welcome'
+    | '/listing/$id'
+    | '/review/$bookingId'
+  id:
+    | '__root__'
+    | '/'
+    | '/browse'
+    | '/login'
+    | '/profile'
+    | '/provider'
+    | '/vendor'
+    | '/welcome'
+    | '/listing/$id'
+    | '/review/$bookingId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  BrowseRoute: typeof BrowseRoute
+  LoginRoute: typeof LoginRoute
+  ProfileRoute: typeof ProfileRoute
+  ProviderRoute: typeof ProviderRoute
+  VendorRoute: typeof VendorRoute
+  WelcomeRoute: typeof WelcomeRoute
+  ListingIdRoute: typeof ListingIdRoute
+  ReviewBookingIdRoute: typeof ReviewBookingIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +156,75 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/browse': {
+      id: '/browse'
+      path: '/browse'
+      fullPath: '/browse'
+      preLoaderRoute: typeof BrowseRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/profile': {
+      id: '/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof ProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/provider': {
+      id: '/provider'
+      path: '/provider'
+      fullPath: '/provider'
+      preLoaderRoute: typeof ProviderRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/vendor': {
+      id: '/vendor'
+      path: '/vendor'
+      fullPath: '/vendor'
+      preLoaderRoute: typeof VendorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/welcome': {
+      id: '/welcome'
+      path: '/welcome'
+      fullPath: '/welcome'
+      preLoaderRoute: typeof WelcomeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/listing/$id': {
+      id: '/listing/$id'
+      path: '/listing/$id'
+      fullPath: '/listing/$id'
+      preLoaderRoute: typeof ListingIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/review/$bookingId': {
+      id: '/review/$bookingId'
+      path: '/review/$bookingId'
+      fullPath: '/review/$bookingId'
+      preLoaderRoute: typeof ReviewBookingIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  BrowseRoute: BrowseRoute,
+  LoginRoute: LoginRoute,
+  ProfileRoute: ProfileRoute,
+  ProviderRoute: ProviderRoute,
+  VendorRoute: VendorRoute,
+  WelcomeRoute: WelcomeRoute,
+  ListingIdRoute: ListingIdRoute,
+  ReviewBookingIdRoute: ReviewBookingIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
