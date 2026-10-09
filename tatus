@@ -1,0 +1,121 @@
+[1mdiff --git a/.gitignore b/.gitignore[m
+[1mdeleted file mode 100644[m
+[1mindex d24df8a..0000000[m
+[1m--- a/.gitignore[m
+[1m+++ /dev/null[m
+[36m@@ -1,32 +0,0 @@[m
+[31m-# Logs[m
+[31m-logs[m
+[31m-*.log[m
+[31m-npm-debug.log*[m
+[31m-yarn-debug.log*[m
+[31m-yarn-error.log*[m
+[31m-pnpm-debug.log*[m
+[31m-lerna-debug.log*[m
+[31m-[m
+[31m-node_modules[m
+[31m-dist[m
+[31m-dist-ssr[m
+[31m-.output[m
+[31m-.vinxi[m
+[31m-.tanstack/**[m
+[31m-.nitro[m
+[31m-*.local[m
+[31m-[m
+[31m-# Wrangler / Cloudflare[m
+[31m-.wrangler/[m
+[31m-.dev.vars[m
+[31m-[m
+[31m-# Editor directories and files[m
+[31m-.vscode/*[m
+[31m-!.vscode/extensions.json[m
+[31m-.idea[m
+[31m-.DS_Store[m
+[31m-*.suo[m
+[31m-*.ntvs*[m
+[31m-*.njsproj[m
+[31m-*.sln[m
+[31m-*.sw?[m
+[1mdiff --git a/.lovable/project.json b/.lovable/project.json[m
+[1mdeleted file mode 100644[m
+[1mindex fa3eea4..0000000[m
+[1m--- a/.lovable/project.json[m
+[1m+++ /dev/null[m
+[36m@@ -1,5 +0,0 @@[m
+[31m-{[m
+[31m-  "schemaVersion": 1,[m
+[31m-  "template": "tanstack_start_ts_current",[m
+[31m-  "revision": "tanstack_start_ts_current-435fd937eb68"[m
+[31m-}[m
+[1mdiff --git a/.prettierignore b/.prettierignore[m
+[1mdeleted file mode 100644[m
+[1mindex be49b26..0000000[m
+[1m--- a/.prettierignore[m
+[1m+++ /dev/null[m
+[36m@@ -1,8 +0,0 @@[m
+[31m-node_modules[m
+[31m-dist[m
+[31m-.output[m
+[31m-.vinxi[m
+[31m-pnpm-lock.yaml[m
+[31m-package-lock.json[m
+[31m-bun.lock[m
+[31m-routeTree.gen.ts[m
+[1mdiff --git a/.prettierrc b/.prettierrc[m
+[1mdeleted file mode 100644[m
+[1mindex 90abee2..0000000[m
+[1m--- a/.prettierrc[m
+[1m+++ /dev/null[m
+[36m@@ -1,6 +0,0 @@[m
+[31m-{[m
+[31m-  "printWidth": 100,[m
+[31m-  "semi": true,[m
+[31m-  "singleQuote": false,[m
+[31m-  "trailingComma": "all"[m
+[31m-}[m
+[1mdiff --git a/AGENTS.md b/AGENTS.md[m
+[1mdeleted file mode 100644[m
+[1mindex 36eb109..0000000[m
+[1m--- a/AGENTS.md[m
+[1m+++ /dev/null[m
+[36m@@ -1,10 +0,0 @@[m
+[31m-<!-- LOVABLE:BEGIN -->[m
+[31m-> [!IMPORTANT][m
+[31m-> This project is connected to [Lovable](https://lovable.dev). Avoid rewriting[m
+[31m-> published git history — force pushing, or rebasing/amending/squashing commits[m
+[31m-> that are already pushed — as it rewrites history on Lovable's side and the[m
+[31m-> user will likely lose their project history.[m
+[31m->[m
+[31m-> Commits you push to the connected branch sync back to Lovable and show up in[m
+[31m-> the editor, so keep the branch in a working state.[m
+[31m-<!-- LOVABLE:END -->[m
+[1mdiff --git a/README.md b/README.md[m
+[1mindex ae44897..4646dea 100644[m
+[1m--- a/README.md[m
+[1m+++ b/README.md[m
+[36m@@ -38,29 +38,4 @@[m [mIf testing on a phone or another device, set it to your computer's LAN IP and al[m
+ - The "verification upload" screen is UI-only; it does not upload identity documents.[m
+ - Booking/request actions are demo interactions and are not persisted.[m
+ - Map tiles come from OpenStreetMap. Use a proper tile provider and follow its usage policy before production.[m
+[31m-=======[m
+[31m-# Pixel Perfect Replica[m
+[31m-[m
+[31m-Implement exactly the screenshot and nothing else[m
+[31m-[m
+[31m-This project was built with [Lovable](https://lovable.dev).[m
+[31m-[m
+[31m-[m
+[31m-[m
+[31m-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/50fa3c14-949a-4239-8cc0-a2479da7007b).[m
+[31m-[m
+[31m-- **Ship faster**: describe what you want to build and Lovable handles the code.[m
+[31m-- **Stay in sync**: every change made in Lovable is committed straight to this repository.[m
+[31m-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.[m
+[31m-[m
+[31m-## Development[m
+[31m-[m
+[31m-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).[m
+[31m-[m
+[31m-```sh[m
+[31m-git clone <this-repository-url>[m
+[31m-cd <repository-name>[m
