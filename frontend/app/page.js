@@ -56,6 +56,14 @@ const TRUST_ROWS = [["ID verified", "idVerified"], ["Completed bookings", "compl
 const STATS = [["12", "Listings"], ["4.8★", "Rating"], ["3", "Requests"]];
 const sub = "muted mt-1 text-sm text-slate-500";
 const authFetch = (path, body) => fetch(`${API}/api/auth/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(body) });
+const distanceInKm = (first, second) => {
+  const radians = degrees => degrees * (Math.PI / 180);
+  const latDelta = radians(second.lat - first.lat);
+  const lngDelta = radians(second.lng - first.lng);
+  const a = Math.sin(latDelta / 2) ** 2
+    + Math.cos(radians(first.lat)) * Math.cos(radians(second.lat)) * Math.sin(lngDelta / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
 
 function parseCsvRecords(text) {
   const rows = [];
@@ -162,6 +170,7 @@ export default function Page() {
   const resultsRef = useRef(null);
   const profileImageInput = useRef(null);
   const vendorWatchRef = useRef(null);
+  const userWatchRef = useRef(null);
   const [items, setItems] = useState([]);
   const [facilities, setFacilities] = useState([]);
   const [facilitiesLoading, setFacilitiesLoading] = useState(true);
@@ -183,6 +192,11 @@ export default function Page() {
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedPlace, setSelectedPlace] = useState(null);
   const [focusLocation, setFocusLocation] = useState(null);
+  const [userLocation, setUserLocation] = useState(null);
+  const [trackingUserLocation, setTrackingUserLocation] = useState(false);
+  const [locationPrompt, setLocationPrompt] = useState(false);
+  const [userLocationError, setUserLocationError] = useState("");
+  const [mapCategory, setMapCategory] = useState("all");
   const [dark, setDark] = useState(false);
   const [step, setStep] = useState(1);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -196,7 +210,7 @@ export default function Page() {
   const [success, setSuccess] = useState(false);
   const [toast, setToast] = useState("");
   const [user, setUser] = useState(null);
-  const [auth, setAuth] = useState({ mode: "login", step: "creds", email: "", password: "", passwordConfirm: "", otp: "", error: "", notice: "", busy: false, wait: 0 });
+  const [auth, setAuth] = useState({ mode: "login", step: "creds", email: "", password: "", passwordConfirm: "", username: "", otp: "", error: "", notice: "", busy: false, wait: 0 });
   const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => { document.documentElement.classList.toggle("dark", dark); }, [dark]);
@@ -249,6 +263,9 @@ export default function Page() {
   useEffect(() => () => {
     if (vendorWatchRef.current !== null && navigator.geolocation) {
       navigator.geolocation.clearWatch(vendorWatchRef.current);
+    }
+    if (userWatchRef.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(userWatchRef.current);
     }
   }, []);
 
@@ -412,6 +429,14 @@ export default function Page() {
   };
 
   const patchAuth = p => setAuth(a => ({ ...a, ...p }));
+  const completeSignIn = data => {
+    setUser(data);
+    if (data.username) setProfileForm(current => ({ ...current, username: data.username }));
+    patchAuth({ step: "creds", password: "", otp: "", error: "", notice: "", wait: 0 });
+    setLocationPrompt(true);
+    setUserLocationError("");
+    nav("home");
+  };
   const otpNotice = data => data.cooldown
     ? `A recent code is still valid. Use that email; you can request another in ${data.resend_after} seconds.`
     : data.email_sent
@@ -437,11 +462,78 @@ export default function Page() {
       patchAuth({ error: "Password must be no longer than 72 bytes. Try fewer special or accented characters." });
       return;
     }
-    authCall(auth.mode, { email: auth.email.trim().toLowerCase(), password: auth.password }, data => patchAuth({ step: "otp", otp: "", wait: data.resend_after || 30, notice: otpNotice(data) }));
+    const credentials = { email: auth.email.trim().toLowerCase(), password: auth.password };
+    if (auth.mode === "register") credentials.username = auth.username.trim().toLowerCase();
+    authCall(auth.mode, credentials, data => {
+      if (auth.mode === "login") {
+        completeSignIn(data);
+      } else {
+        patchAuth({ step: "otp", otp: "", wait: data.resend_after || 30, notice: otpNotice(data) });
+      }
+    });
   };
-  const submitOtp = e => { e.preventDefault(); authCall("verify-otp", { email: auth.email, otp: auth.otp }, d => { setUser(d); patchAuth({ step: "creds", password: "", otp: "" }); nav("profile"); notify("Signed in"); }); };
+  const submitOtp = e => { e.preventDefault(); authCall("verify-otp", { email: auth.email, otp: auth.otp }, completeSignIn); };
   const resendOtp = () => authCall("resend-otp", { email: auth.email.trim().toLowerCase() }, data => patchAuth({ wait: data.resend_after || 30, notice: otpNotice(data) }));
-  const logout = async () => { await fetch(`${API}/api/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {}); setUser(null); nav("home"); notify("Signed out"); };
+  const stopUserLocationTracking = () => {
+    if (userWatchRef.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(userWatchRef.current);
+      userWatchRef.current = null;
+    }
+    setTrackingUserLocation(false);
+    setUserLocation(null);
+    setFocusLocation(null);
+    notify("Location tracking stopped.");
+  };
+  const startUserLocationTracking = () => {
+    if (!navigator.geolocation) {
+      setUserLocationError("Location access is unavailable in this browser.");
+      return;
+    }
+    setUserLocationError("");
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        const location = { lat: coords.latitude, lng: coords.longitude };
+        setUserLocation(location);
+        setFocusLocation({ ...location, zoom: 14 });
+        setMapCity("All cities");
+        setLocationPrompt(false);
+        setTrackingUserLocation(true);
+        nav("map");
+        if (userWatchRef.current !== null) navigator.geolocation.clearWatch(userWatchRef.current);
+        userWatchRef.current = navigator.geolocation.watchPosition(
+          ({ coords: latest }) => setUserLocation({ lat: latest.latitude, lng: latest.longitude }),
+          error => {
+            if (error.code === error.PERMISSION_DENIED) {
+              if (userWatchRef.current !== null) navigator.geolocation.clearWatch(userWatchRef.current);
+              userWatchRef.current = null;
+              setTrackingUserLocation(false);
+              notify("Location permission was revoked. The last position remains visible on this device.");
+              return;
+            }
+            notify("Live location could not update. The last position remains visible on this device.");
+          },
+          { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+        );
+      },
+      error => setUserLocationError(
+        error.code === error.PERMISSION_DENIED
+          ? "Location permission was denied. You can enable it in browser settings and try again."
+          : "Could not get your location. Check device location services and try again."
+      ),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+    );
+  };
+  const logout = async () => {
+    await fetch(`${API}/api/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {});
+    if (userWatchRef.current !== null && navigator.geolocation) navigator.geolocation.clearWatch(userWatchRef.current);
+    userWatchRef.current = null;
+    setTrackingUserLocation(false);
+    setUserLocation(null);
+    setUser(null);
+    setLocationPrompt(false);
+    nav("home");
+    notify("Signed out");
+  };
 
   async function submitListing() {
     try {
@@ -481,11 +573,23 @@ export default function Page() {
     const searchable = `${facility.id} ${facility.name} ${facility.category} ${facility.city} ${facility.address}`.toLowerCase();
     return matchesCity && (!mapNeedle || searchable.includes(mapNeedle));
   });
+  const mapCategories = [...new Set(items.map(item => item.category).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const visibleMapItems = (mapCity === "Meerut" || mapCity === "All cities")
-    ? filtered.filter(item => {
+    ? items.filter(item => {
       const searchable = `${item.name} ${item.category} ${item.title} ${item.description}`.toLowerCase();
-      return !mapNeedle || searchable.includes(mapNeedle);
-    })
+      const itemDistance = userLocation
+        ? distanceInKm(userLocation, { lat: item.lat, lng: item.lng })
+        : item.distanceKm;
+      return (filter === "all" || item.type === filter)
+        && (mapCategory === "all" || item.category === mapCategory)
+        && itemDistance <= radius
+        && (!mapNeedle || searchable.includes(mapNeedle));
+    }).map(item => ({
+      ...item,
+      distanceKm: Number((userLocation
+        ? distanceInKm(userLocation, { lat: item.lat, lng: item.lng })
+        : item.distanceKm).toFixed(1)),
+    }))
     : [];
   const visibleOnlinePlaces = onlinePlaces.filter(place => {
     const searchable = `${place.name} ${place.category} ${place.city}`.toLowerCase();
@@ -577,19 +681,11 @@ export default function Page() {
     }
   };
   const recenterMap = () => {
-    if (!navigator.geolocation) {
-      notify("Location access is unavailable in this browser. Showing selected city.");
+    if (userLocation) {
+      setFocusLocation({ ...userLocation, zoom: 14 });
       return;
     }
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        setSelected(null);
-        setSelectedFacility(null);
-        setFocusLocation({ lat: coords.latitude, lng: coords.longitude, zoom: 15 });
-      },
-      () => notify("Could not access your location. Showing selected city."),
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+    startUserLocationTracking();
   };
 
   const topbar = <header className="surface sticky top-0 z-20 border-b border-slate-100 bg-white/90 backdrop-blur">
@@ -669,7 +765,7 @@ export default function Page() {
       <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-700">Neighbourhood explorer</p><h1 className="mt-1 text-2xl font-black">Explore the map</h1><p className={sub}>CSV facilities and nearby Padosi listings, all in one place.</p></div>
       <button onClick={recenterMap} className="surface rounded-full px-4 py-2 text-xs font-bold text-teal-800"><LocateFixed size={14} className="mr-1 inline" /> Use my location</button>
     </div>
-    <div className="surface mb-4 grid gap-3 rounded-2xl p-4 sm:grid-cols-[minmax(180px,0.7fr)_minmax(220px,1.3fr)]">
+    <div className="surface mb-4 grid gap-3 rounded-2xl p-4 sm:grid-cols-3">
       <label className="text-xs font-bold text-slate-600">City
         <select value={mapCity} onChange={event => {
           const nextCity = event.target.value;
@@ -690,6 +786,12 @@ export default function Page() {
       <label className="text-xs font-bold text-slate-600">Find a facility or listing
         <input value={mapSearch} onChange={event => setMapSearch(event.target.value)} className={`${input} mt-2`} placeholder="Search facility ID, category, area…" />
       </label>
+      <label className="text-xs font-bold text-slate-600">Listing category
+        <select value={mapCategory} onChange={event => setMapCategory(event.target.value)} className={`${input} mt-2`}>
+          <option value="all">All categories</option>
+          {mapCategories.map(category => <option key={category} value={category}>{category}</option>)}
+        </select>
+      </label>
     </div>
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -703,10 +805,14 @@ export default function Page() {
         </button>
       </div>
     </div>
-    {trackingVendorIds.length > 0 && <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
-      <span><b>Live location sharing is on.</b> This device updates {trackingVendorIds.length} vendor {trackingVendorIds.length === 1 ? "pin" : "pins"} only while the app is open.</span>
-      <button onClick={stopLiveVendorSharing} className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-emerald-800">Stop sharing</button>
+    {(trackingUserLocation || trackingVendorIds.length > 0) && <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+      <span><b>Location tracking is on.</b> {trackingUserLocation ? "Your position and nearby listing distances update on this device while the app is open." : `This device updates ${trackingVendorIds.length} vendor ${trackingVendorIds.length === 1 ? "pin" : "pins"} while the app is open.`}</span>
+      <div className="flex gap-2">
+        {trackingUserLocation && <button onClick={stopUserLocationTracking} className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-emerald-800">Stop my tracking</button>}
+        {trackingVendorIds.length > 0 && <button onClick={stopLiveVendorSharing} className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-emerald-800">Stop vendor sharing</button>}
+      </div>
     </div>}
+    {userLocationError && <p role="alert" className="mb-3 rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-700">{userLocationError}</p>}
     {facilitiesError && <p role="alert" className="mb-3 rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-700">{facilitiesError}</p>}
     {onlinePlacesError && <p role={onlinePlacesLoading ? "status" : "alert"} className="mb-3 rounded-xl bg-violet-50 p-3 text-sm font-semibold text-violet-900">{onlinePlacesError}</p>}
     <p className="mb-3 text-xs leading-5 text-slate-500">Online places are sourced from OpenStreetMap and may not reflect current stock, opening status, or booking availability.</p>
@@ -721,6 +827,7 @@ export default function Page() {
         selectedPlace={selectedPlace}
         city={mapCity}
         focusLocation={focusLocation}
+        userLocation={userLocation}
         onSelect={item => { setSelected(item); setSelectedFacility(null); setSelectedPlace(null); }}
         onSelectFacility={selectFacility}
         onSelectPlace={selectOnlinePlace}
@@ -882,6 +989,10 @@ export default function Page() {
       <div className="surface mt-5 grid grid-cols-2 gap-1 rounded-xl p-1">{[["login", "Sign in"], ["register", "Create account"]].map(([m, l]) => <button key={m} type="button" onClick={() => { setShowPassword(false); patchAuth({ mode: m, error: "", password: "", passwordConfirm: "" }); }} className={`rounded-lg py-2 text-sm font-bold ${auth.mode === m ? "rounded-lg bg-teal-700 text-white shadow-sm" : "text-slate-500"}`}>{l}</button>)}</div>
       <form onSubmit={submitCreds} className="mt-5 space-y-4">
         <label className="block text-sm font-semibold">Email address<input type="email" required autoComplete="email" value={auth.email} onChange={e => patchAuth({ email: e.target.value, error: "" })} className={input} placeholder="you@example.com" /></label>
+        {auth.mode === "register" && <label className="block text-sm font-semibold">Unique username
+          <div className="mt-1.5 flex items-center gap-2"><span className="text-lg font-bold text-teal-700">@</span><input type="text" required minLength={3} maxLength={24} pattern="[A-Za-z0-9][A-Za-z0-9_.]{1,22}[A-Za-z0-9]" autoComplete="username" value={auth.username} onChange={event => patchAuth({ username: event.target.value.replace(/[^A-Za-z0-9_.]/g, "").toLowerCase(), error: "" })} className={input} placeholder="choose-a-unique-name" /></div>
+          <span className="muted mt-1 block text-xs text-slate-500">3–24 characters; letters, numbers, periods, and underscores. You’ll use this unique @handle on your profile.</span>
+        </label>}
         <label className="block text-sm font-semibold">Password
           <span className="relative mt-1.5 block">
             <input type={showPassword ? "text" : "password"} required minLength={8} maxLength={72} autoComplete={auth.mode === "login" ? "current-password" : "new-password"} value={auth.password} onChange={e => patchAuth({ password: e.target.value, error: "" })} className={`${input} pr-12`} placeholder="At least 8 characters" />
@@ -918,7 +1029,7 @@ export default function Page() {
   </div></section>;
 
   const profileTitle = profileForm.name || user?.email?.split("@")[0] || "Neighbour";
-  const profileUsername = profileForm.username || (user?.email ? user.email.split("@")[0].replace(/[^a-zA-Z0-9_.]/g, "") : "neighbour");
+  const profileUsername = user?.username || profileForm.username || (user?.email ? user.email.split("@")[0].replace(/[^a-zA-Z0-9_.]/g, "") : "neighbour");
   const profileAvatar = profileForm.image
     ? <img src={profileForm.image} alt={`${profileTitle}'s profile`} className="h-full w-full rounded-full object-cover" />
     : <UserRound size={32} />;
@@ -934,7 +1045,7 @@ export default function Page() {
           setProfileForm(current => ({
             ...current,
             name: current.name || user?.email?.split("@")[0] || "",
-            username: current.username || (user?.email ? user.email.split("@")[0].replace(/[^a-zA-Z0-9_.]/g, "") : ""),
+            username: user?.username || current.username || (user?.email ? user.email.split("@")[0].replace(/[^a-zA-Z0-9_.]/g, "") : ""),
           }));
           setProfileEditing(true);
           setProfileSaved(false);
@@ -947,7 +1058,7 @@ export default function Page() {
         {user ? <button onClick={logout} className="surface flex items-center justify-center gap-2 rounded-xl py-3 font-bold"><LogOut size={17} /> Sign out</button> : <button onClick={() => nav("login")} className="rounded-xl bg-teal-700 py-3 font-bold text-white">Sign in or create account</button>}
         <button onClick={() => setDark(v => !v)} className="surface flex items-center justify-center gap-2 rounded-xl py-3 font-bold"><span className="flex items-center gap-2">{dark ? <Sun size={18} /> : <Moon size={18} />} Appearance</span><span className="text-xs text-slate-500">{dark ? "Dark" : "Light"}</span></button>
       </div>
-      <p className="muted mt-5 text-xs leading-5 text-slate-500">Your current backend only stores email and account verification. Display name, username, and avatar are stored in this browser and are not synced to your account or visible to other users.</p>
+      <p className="muted mt-5 text-xs leading-5 text-slate-500">Your unique username is attached to your account. Display name and avatar are saved only in this browser.</p>
     </div>
   </section>;
 
@@ -964,9 +1075,9 @@ export default function Page() {
       </div>
       <div className="mt-6 space-y-4">
         <label className="block text-sm font-semibold">Display name<input required maxLength={60} value={profileForm.name} onChange={updateProfileField("name")} className={input} placeholder="How neighbours should address you" /></label>
-        <label className="block text-sm font-semibold">Username
-          <div className="mt-1.5 flex items-center gap-2"><span className="text-lg font-bold text-teal-700">@</span><input required minLength={3} maxLength={24} pattern="[A-Za-z0-9_.]+" value={profileForm.username} onChange={event => setProfileForm(current => ({ ...current, username: event.target.value.replace(/[^A-Za-z0-9_.]/g, "") }))} className={input} placeholder="yourname" /></div>
-          <span className="muted mt-1 block text-xs text-slate-500">3–24 characters; letters, numbers, underscores, and periods.</span>
+        <label className="block text-sm font-semibold">Unique username
+          <div className="mt-1.5 flex items-center gap-2"><span className="text-lg font-bold text-teal-700">@</span><input required minLength={3} maxLength={24} pattern="[A-Za-z0-9][A-Za-z0-9_.]{1,22}[A-Za-z0-9]" value={user?.username || profileForm.username} disabled={Boolean(user?.username)} onChange={event => setProfileForm(current => ({ ...current, username: event.target.value.replace(/[^A-Za-z0-9_.]/g, "").toLowerCase() }))} className={input} placeholder="yourname" /></div>
+          <span className="muted mt-1 block text-xs text-slate-500">{user?.username ? "This account ID was reserved during registration." : "3–24 characters; letters, numbers, periods, and underscores."}</span>
         </label>
       </div>
       <div className="mt-6 flex gap-3"><button type="button" onClick={() => setProfileEditing(false)} className="surface flex-1 rounded-xl py-3 font-bold">Cancel</button><button type="submit" className="flex-1 rounded-xl bg-teal-700 py-3 font-bold text-white">Save on this device</button></div>
@@ -979,9 +1090,9 @@ export default function Page() {
       <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-100 text-amber-800"><KeyRound size={26} /></div>
       <p className="mt-5 text-xs font-black uppercase tracking-[0.18em] text-amber-800">Account recovery</p>
       <h1 className="mt-2 text-2xl font-black">Forgot your password?</h1>
-      <p className={sub}>We can’t reset passwords yet. The current sign-in API has no password-reset endpoint, and its email code only verifies a login or registration—it cannot safely change your password.</p>
+      <p className={sub}>We can’t reset passwords yet. The current API has no password-reset endpoint, and registration email codes are only for initial account verification.</p>
       {recoveryEmail && <p className="surface mt-5 rounded-xl p-3 text-sm"><span className="font-semibold text-slate-500">Account email</span><br /><span className="font-bold">{recoveryEmail}</span></p>}
-      <div className="mt-5 rounded-2xl bg-amber-50 p-4 text-sm leading-6 text-amber-950"><b>For account safety, no reset email will be sent from this screen.</b> Enabling password reset requires a backend route that verifies a recovery token and updates the stored password. The backend has been left unchanged as requested.</div>
+      <div className="mt-5 rounded-2xl bg-amber-50 p-4 text-sm leading-6 text-amber-950"><b>For account safety, no reset email will be sent from this screen.</b> Enabling password reset requires a backend route that verifies a recovery token and updates the stored password.</div>
       <button onClick={() => nav("login")} className="mt-6 w-full rounded-xl bg-teal-700 py-3.5 font-bold text-white">Return to sign in</button>
     </div>
   </section>;
@@ -994,5 +1105,16 @@ export default function Page() {
     <BottomNav active={active} setActive={nav} onAdd={openAdd} />
     {toast && <div role="status" className="fixed bottom-24 left-1/2 z-[1000] -translate-x-1/2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-xl md:bottom-6">{toast}</div>}
     {loading && <div className="fixed bottom-24 right-4 z-20 rounded-full bg-white px-3 py-2 text-xs text-slate-500 shadow md:bottom-5">Connecting to Padosi API…</div>}
+    {locationPrompt && <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-950/50 p-4" role="presentation">
+      <section role="dialog" aria-modal="true" aria-labelledby="location-permission-title" className="surface w-full max-w-md rounded-3xl p-6 sm:p-8">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-teal-100 text-teal-800"><LocateFixed size={26} /></div>
+        <p className="mt-5 text-xs font-black uppercase tracking-[0.18em] text-teal-700">Optional location feature</p>
+        <h2 id="location-permission-title" className="mt-2 text-2xl font-black">Find resources around you</h2>
+        <p className={sub}>Allow your browser to share this device’s location so the map can show your position and filter listings by nearby category and distance. Location is used only on this device; it is not sent to our backend or shared with other users. Tracking continues only while this page is open.</p>
+        {userLocationError && <p role="alert" className="mt-4 rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-700">{userLocationError}</p>}
+        <button onClick={startUserLocationTracking} className="mt-6 w-full rounded-xl bg-teal-700 py-3.5 font-bold text-white">Allow location and open map</button>
+        <button onClick={() => { setLocationPrompt(false); setUserLocationError(""); }} className="mt-3 w-full rounded-xl py-3 text-sm font-bold text-slate-600">Not now</button>
+      </section>
+    </div>}
   </main>;
 }

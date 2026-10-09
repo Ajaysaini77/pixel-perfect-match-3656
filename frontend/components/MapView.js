@@ -12,6 +12,7 @@ export default function MapView({
   selectedPlace,
   city = "Meerut",
   focusLocation,
+  userLocation,
   onSelect,
   onSelectFacility,
   onSelectPlace,
@@ -81,8 +82,17 @@ export default function MapView({
         marker.bindTooltip(`${place.name} · OpenStreetMap`, { direction: "top" });
         marker.on("click", () => onSelectPlace(place));
       });
+      if (userLocation) {
+        L.circleMarker([userLocation.lat, userLocation.lng], {
+          radius: 10,
+          color: "#ffffff",
+          weight: 3,
+          fillColor: "#0f766e",
+          fillOpacity: 1,
+        }).addTo(layersRef.current).bindTooltip("Your current location", { direction: "top" });
+      }
     });
-  }, [mapReady, items, facilities, onlinePlaces, selected, selectedFacility, selectedPlace, onSelect, onSelectFacility, onSelectPlace]);
+  }, [mapReady, items, facilities, onlinePlaces, selected, selectedFacility, selectedPlace, userLocation, onSelect, onSelectFacility, onSelectPlace]);
 
   useEffect(() => {
     const map = mapRef.current;
