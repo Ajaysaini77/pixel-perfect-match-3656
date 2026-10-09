@@ -8,7 +8,7 @@ export interface Booking {
   listingId: string;
   kind: "demo" | "borrow";
   date: string;
-  time?: string;
+  time?: string | undefined;
   status: "upcoming" | "completed";
   reviewed: boolean;
 }
@@ -18,7 +18,7 @@ export interface MyReview {
   listingId: string;
   rating: number;
   text: string;
-  photo?: string;
+  photo?: string | undefined;
   date: string;
 }
 

@@ -25,7 +25,7 @@ export function ViewToggle({ view, onChange }: { view: "list" | "map"; onChange:
 export function Results({ listings, view }: { listings: RankedListing[]; view: "list" | "map" }) {
   const [radiusIdx, setRadiusIdx] = useState(1);
   const [selected, setSelected] = useState<string | null>(null);
-  const radius = RADII[radiusIdx];
+  const radius = RADII[radiusIdx] ?? 2;
   const inRadius = listings.filter((l) => l.km <= radius);
   const sel = inRadius.find((l) => l.id === selected);
   const onSelect = useCallback((id: string | null) => setSelected(id), []);
@@ -46,7 +46,7 @@ export function Results({ listings, view }: { listings: RankedListing[]; view: "
           <span className="font-semibold">Search radius</span>
           <span className="font-bold text-primary">{radius} km · {inRadius.length} found</span>
         </div>
-        <Slider min={0} max={2} step={1} value={[radiusIdx]} onValueChange={(v) => setRadiusIdx(v[0])} aria-label="Radius" />
+        <Slider min={0} max={2} step={1} value={[radiusIdx]} onValueChange={(v) => setRadiusIdx(v[0] ?? 1)} aria-label="Radius" />
         <div className="mt-2 flex justify-between text-xs text-muted-foreground">{RADII.map((r) => <span key={r}>{r} km</span>)}</div>
       </div>
       <div className="flex gap-3 text-xs text-muted-foreground">

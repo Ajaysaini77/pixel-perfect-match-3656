@@ -15,9 +15,9 @@ interface BrowseSearch {
 
 export const Route = createFileRoute("/browse")({
   validateSearch: (s: Record<string, unknown>): BrowseSearch => ({
-    cat: ["resource", "tutor", "vendor"].includes(s.cat as string) ? (s.cat as CatFilter) : "all",
-    q: typeof s.q === "string" ? s.q : "",
-    view: s.view === "map" ? "map" : "list",
+    cat: ["resource", "tutor", "vendor"].includes(s["cat"] as string) ? (s["cat"] as CatFilter) : "all",
+    q: typeof s["q"] === "string" ? s["q"] : "",
+    view: s["view"] === "map" ? "map" : "list",
   }),
   head: () => ({
     meta: [
