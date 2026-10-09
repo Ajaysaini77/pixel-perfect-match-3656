@@ -1,12 +1,25 @@
 "use client";
 
 import "leaflet/dist/leaflet.css";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
-export default function MapView({ items = [], selected, onSelect }) {
+export default function MapView({
+  items = [],
+  facilities = [],
+  onlinePlaces = [],
+  selected,
+  selectedFacility,
+  selectedPlace,
+  city = "Meerut",
+  focusLocation,
+  onSelect,
+  onSelectFacility,
+  onSelectPlace,
+}) {
   const hostRef = useRef(null);
   const mapRef = useRef(null);
   const layersRef = useRef(null);
+  const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
     let map;
@@ -20,6 +33,7 @@ export default function MapView({ items = [], selected, onSelect }) {
       }).addTo(map);
       mapRef.current = map;
       layersRef.current = L.layerGroup().addTo(map);
+      setMapReady(true);
       setTimeout(() => map.invalidateSize(), 150);
     });
     return () => {
@@ -29,23 +43,83 @@ export default function MapView({ items = [], selected, onSelect }) {
   }, []);
 
   useEffect(() => {
-    if (!mapRef.current || !layersRef.current) return;
+    if (!mapReady || !mapRef.current || !layersRef.current) return;
     import("leaflet").then(L => {
+      if (!layersRef.current) return;
       layersRef.current.clearLayers();
       items.forEach(item => {
-        const colors = { tutor: "#0F9D8A", resource: "#D97706", vendor: "#EA580C" };
+        const colors = { tutor: "#0F9D8A", resource: "#D97706", vendor: item.live ? "#DC2626" : "#EA580C" };
         const marker = L.circleMarker([item.lat, item.lng], {
-          radius: selected?.id === item.id ? 11 : 8,
+          radius: selected?.id === item.id || item.live ? 11 : 8,
           color: "#fff",
           weight: 2,
           fillColor: colors[item.type] || "#0F9D8A",
           fillOpacity: 1,
         }).addTo(layersRef.current);
-        marker.bindTooltip(item.name, { direction: "top" });
+        marker.bindTooltip(item.live ? `${item.name} · LIVE` : item.name, { direction: "top" });
         marker.on("click", () => onSelect(item));
       });
+      facilities.forEach(facility => {
+        const marker = L.circleMarker([facility.lat, facility.lng], {
+          radius: selectedFacility?.id === facility.id ? 12 : 9,
+          color: "#fff",
+          weight: 2,
+          fillColor: "#2563EB",
+          fillOpacity: 1,
+        }).addTo(layersRef.current);
+        marker.bindTooltip(`${facility.id} · ${facility.city}`, { direction: "top" });
+        marker.on("click", () => onSelectFacility(facility));
+      });
+      onlinePlaces.forEach(place => {
+        const marker = L.circleMarker([place.lat, place.lng], {
+          radius: selectedPlace?.id === place.id ? 12 : 9,
+          color: "#fff",
+          weight: 2,
+          fillColor: "#7C3AED",
+          fillOpacity: 1,
+        }).addTo(layersRef.current);
+        marker.bindTooltip(`${place.name} · OpenStreetMap`, { direction: "top" });
+        marker.on("click", () => onSelectPlace(place));
+      });
     });
-  }, [items, selected, onSelect]);
+  }, [mapReady, items, facilities, onlinePlaces, selected, selectedFacility, selectedPlace, onSelect, onSelectFacility, onSelectPlace]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!mapReady || !map) return;
+
+    if (selectedFacility) {
+      map.setView([selectedFacility.lat, selectedFacility.lng], 15);
+      return;
+    }
+
+    if (selectedPlace) {
+      map.setView([selectedPlace.lat, selectedPlace.lng], 16);
+      return;
+    }
+
+    if (focusLocation) {
+      map.setView([focusLocation.lat, focusLocation.lng], focusLocation.zoom || 15);
+      return;
+    }
+
+    if (city === "All cities") {
+      const points = [
+        ...facilities.map(facility => [facility.lat, facility.lng]),
+        ...onlinePlaces.map(place => [place.lat, place.lng]),
+        ...items.map(item => [item.lat, item.lng]),
+      ];
+      if (points.length) map.fitBounds(points, { padding: [36, 36], maxZoom: 12 });
+      return;
+    }
+
+    const cityCenters = {
+      Meerut: [28.9845, 77.7064],
+      Delhi: [28.6139, 77.209],
+    };
+    const center = cityCenters[city];
+    if (center) map.setView(center, 12);
+  }, [mapReady, city, focusLocation, facilities, onlinePlaces, items, selectedFacility, selectedPlace]);
 
   return <div ref={hostRef} className="h-full w-full" aria-label="Map showing nearby listings"/>;
 }
