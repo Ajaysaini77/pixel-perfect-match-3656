@@ -4,7 +4,7 @@ Implement exactly the screenshot and nothing else
 
 This project was built with [Lovable](https://lovable.dev).
 
-## Build with Lovable
+
 
 Continue developing this project in the [Lovable editor](https://lovable.dev/projects/50fa3c14-949a-4239-8cc0-a2479da7007b).
 
