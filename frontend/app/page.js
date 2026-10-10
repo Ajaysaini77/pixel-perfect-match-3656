@@ -886,7 +886,7 @@ export default function Page() {
 
   const topbar = <header className="surface sticky top-0 z-20 border-b border-slate-100 bg-white/90 backdrop-blur">
     <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
-      <button onClick={() => nav("home")} className="flex items-center gap-2"><span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-teal-600 text-white"><MapPin size={22} /></span><span className="text-xl font-black tracking-tight">Padosi<span className="text-teal-600">.</span><span className="muted ml-2 hidden text-xs font-medium text-slate-400 sm:inline">Good things live nearby</span></span></button>
+      <button onClick={() => nav("home")} className="flex items-center gap-2"><span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-teal-600 text-white"><MapPin size={22} /></span><span className="text-xl font-black tracking-tight">Nearhood<span className="text-teal-600">.</span><span className="muted ml-2 hidden text-xs font-medium text-slate-400 sm:inline">Good things live nearby</span></span></button>
       <div className="hidden items-center gap-1 md:flex">
         {LINKS.map(([id, label]) => <button key={id} onClick={() => nav(id)} className={`rounded-full px-4 py-2 text-sm font-semibold ${active === id ? "bg-teal-50 text-teal-700" : "text-slate-500 hover:bg-slate-50"}`}>{label}</button>)}
         {user?.role === "vendor" && <button onClick={() => nav("vendor")} className={`rounded-full px-4 py-2 text-sm font-semibold ${active === "vendor" ? "bg-teal-50 text-teal-700" : "text-slate-500 hover:bg-slate-50"}`}>Vendor dashboard</button>}
@@ -960,7 +960,7 @@ export default function Page() {
   const input = "mt-1.5 w-full rounded-xl border border-slate-200 bg-transparent px-3 py-3 outline-none focus:border-teal-500";
   const mapPage = <section>
     <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-      <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-700">Neighbourhood explorer</p><h1 className="mt-1 text-2xl font-black">Explore the map</h1><p className={sub}>CSV facilities and nearby Padosi listings, all in one place.</p></div>
+      <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-700">Neighbourhood explorer</p><h1 className="mt-1 text-2xl font-black">Explore the map</h1><p className={sub}>CSV facilities and nearby Nearhood listings, all in one place.</p></div>
       <button onClick={recenterMap} className="surface rounded-full px-4 py-2 text-xs font-bold text-teal-800"><LocateFixed size={14} className="mr-1 inline" /> Use my location</button>
     </div>
     <div className="surface mb-4 grid gap-3 rounded-2xl p-4 sm:grid-cols-3">
@@ -1141,7 +1141,7 @@ export default function Page() {
       <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Check size={38} /></div>
       <h1 className="mt-5 text-2xl font-black">Your listing is saved!</h1>
       <p className="muted mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-500">It is stored with your account and is available to neighbours browsing its category.</p>
-      <button onClick={() => { setSuccess(false); setStep(1); setForm(EMPTY_FORM); nav("home"); }} className="mt-6 rounded-xl bg-teal-600 px-6 py-3 font-bold text-white">Explore Padosi</button>
+      <button onClick={() => { setSuccess(false); setStep(1); setForm(EMPTY_FORM); nav("home"); }} className="mt-6 rounded-xl bg-teal-600 px-6 py-3 font-bold text-white">Explore Nearhood</button>
     </div> : <div className="surface rounded-3xl border border-slate-100 bg-white p-5 shadow-sm sm:p-8">
       <div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-widest text-teal-700">Share with your neighbourhood</p><h1 className="mt-2 text-2xl font-black">Add a listing</h1></div><span className="rounded-full bg-teal-50 px-3 py-2 text-xs font-bold text-teal-700">Step {step} of 3</span></div>
       <div className="mt-5 flex gap-2">{[1, 2, 3].map(n => <div key={n} className={`h-1.5 flex-1 rounded-full ${step >= n ? "bg-teal-600" : "bg-slate-100"}`} />)}</div>
@@ -1313,7 +1313,7 @@ export default function Page() {
     ? <img src={profileForm.image} alt={`${profileTitle}'s profile`} className="h-full w-full rounded-full object-cover" />
     : <UserRound size={32} />;
   const profile = <section className="mx-auto max-w-2xl">
-    <div className="mb-5"><p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-700">Your neighbourhood identity</p><h1 className="mt-1 text-2xl font-black">Profile</h1><p className={sub}>Manage how you appear to the Padosi community.</p></div>
+    <div className="mb-5"><p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-700">Your neighbourhood identity</p><h1 className="mt-1 text-2xl font-black">Profile</h1><p className={sub}>Manage how you appear to the Nearhood community.</p></div>
     <div className="surface rounded-[2rem] p-6 sm:p-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
@@ -1381,7 +1381,7 @@ export default function Page() {
     <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6 sm:py-8">{views[active]}</div>
     <BottomNav active={active} setActive={nav} onAdd={openAdd} />
     {toast && <div role="status" className="fixed bottom-24 left-1/2 z-[1000] -translate-x-1/2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-xl md:bottom-6">{toast}</div>}
-    {loading && <div className="fixed bottom-24 right-4 z-20 rounded-full bg-white px-3 py-2 text-xs text-slate-500 shadow md:bottom-5">Connecting to Padosi API…</div>}
+    {loading && <div className="fixed bottom-24 right-4 z-20 rounded-full bg-white px-3 py-2 text-xs text-slate-500 shadow md:bottom-5">Connecting to Nearhood API…</div>}
     {locationPrompt && <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-950/50 p-4" role="presentation">
       <section role="dialog" aria-modal="true" aria-labelledby="location-permission-title" className="surface w-full max-w-md rounded-3xl p-6 sm:p-8">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-teal-100 text-teal-800"><LocateFixed size={26} /></div>
