@@ -1,6 +1,6 @@
 """
 Padosi authentication:
-Email + password, followed by a six-digit OTP sent over SMTP.
+Email + password for sign-in; registration uses a six-digit email OTP.
 
 User accounts are persisted in the configured SQL database. OTPs remain
 short-lived, process-local state.
@@ -16,6 +16,7 @@ import ssl
 import time
 from math import ceil
 from email.message import EmailMessage
+from typing import Literal
 
 import bcrypt
 import jwt
@@ -28,6 +29,7 @@ from fastapi import (
     Response,
 )
 from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -45,7 +47,7 @@ COOKIE = "padosi_session"
 OTP_TTL = 300
 OTP_TRIES = 5
 RESEND_GAP = 30
-SESSION_TTL = 7 * 24 * 3600
+SESSION_TTL = 30 * 24 * 3600
 
 OTPS: dict[str, dict] = {}
 logger = logging.getLogger(__name__)
@@ -62,6 +64,15 @@ class Creds(BaseModel):
     password: str = Field(min_length=8, max_length=72)
 
 
+class RegistrationCreds(Creds):
+    username: str = Field(
+        min_length=3,
+        max_length=24,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.]{1,22}[A-Za-z0-9]$",
+    )
+    role: Literal["member", "vendor"] = "member"
+
+
 class Verify(BaseModel):
     email: EmailStr
     otp: str = Field(pattern=r"^\d{6}$")
@@ -69,6 +80,10 @@ class Verify(BaseModel):
 
 class EmailOnly(BaseModel):
     email: EmailStr
+
+
+class ProfileUpdate(BaseModel):
+    display_name: str = Field(min_length=1, max_length=60)
 
 
 def norm(email: str) -> str:
@@ -183,18 +198,55 @@ def otp_response(email: str) -> dict[str, bool | int]:
     }
 
 
+def create_session(user: User, response: Response) -> dict[str, int | str | None]:
+    token = jwt.encode(
+        {
+            "sub": str(user.id),
+            "exp": int(time.time()) + SESSION_TTL,
+        },
+        JWT_SECRET,
+        algorithm="HS256",
+    )
+
+    response.set_cookie(
+        COOKIE,
+        token,
+        httponly=True,
+        samesite="lax",
+        secure=os.getenv("COOKIE_SECURE") == "1",
+        max_age=SESSION_TTL,
+        path="/",
+    )
+
+    return {
+        "id": user.id,
+        "email": user.email,
+        "username": user.username or "",
+        "display_name": user.display_name,
+        "role": user.role,
+    }
+
+
 @router.post("/register")
 def register(
-    c: Creds,
+    c: RegistrationCreds,
     db: Session = Depends(get_db),
 ):
     email = norm(str(c.email))
+    username = c.username.strip().lower()
     user = db.query(User).filter(User.email == email).first()
 
     if user and user.is_verified:
         raise HTTPException(
             status_code=409,
             detail="This email already has a verified account. Please sign in instead.",
+        )
+
+    username_owner = db.query(User).filter(User.username == username).first()
+    if username_owner and username_owner.email != email:
+        raise HTTPException(
+            status_code=409,
+            detail="That username is already taken. Choose a different one.",
         )
 
     password_hash = bcrypt.hashpw(
@@ -204,15 +256,26 @@ def register(
 
     if user:
         user.hashed_password = password_hash
+        user.username = username
+        user.role = c.role
     else:
         user = User(
             email=email,
+            username=username,
+            role=c.role,
             hashed_password=password_hash,
             is_verified=False,
         )
         db.add(user)
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="That username is already taken. Choose a different one.",
+        ) from exc
     return otp_response(email)
 
 
@@ -220,6 +283,7 @@ def register(
 @router.post("/login")
 def login(
     c: Creds,
+    res: Response,
     db: Session = Depends(get_db),
 ):
     email = norm(str(c.email))
@@ -231,13 +295,19 @@ def login(
         password_hash,
     )
 
-    if not user or not password_ok or not user.is_verified:
+    if not user or not password_ok:
         raise HTTPException(
             status_code=401,
             detail="Wrong email or password.",
         )
 
-    return otp_response(email)
+    if not user.is_verified:
+        raise HTTPException(
+            status_code=403,
+            detail="Please verify your email by completing registration before signing in.",
+        )
+
+    return create_session(user, res)
 
 
 @router.post("/resend-otp")
@@ -300,26 +370,7 @@ def verify(
     db.commit()
     db.refresh(user)
 
-    token = jwt.encode(
-        {
-            "sub": str(user.id),
-            "exp": int(time.time()) + SESSION_TTL,
-        },
-        JWT_SECRET,
-        algorithm="HS256",
-    )
-
-    res.set_cookie(
-        COOKIE,
-        token,
-        httponly=True,
-        samesite="lax",
-        secure=os.getenv("COOKIE_SECURE") == "1",
-        max_age=SESSION_TTL,
-        path="/",
-    )
-
-    return {"id": user.id, "email": user.email}
+    return create_session(user, res)
 
 
 def current_user(
@@ -354,11 +405,41 @@ def current_user(
 
 
 @router.get("/me")
-def me(user: User = Depends(current_user)):
-    return {"id": user.id, "email": user.email}
+def me(
+    response: Response,
+    user: User = Depends(current_user),
+):
+    return create_session(user, response)
+
+
+@router.put("/profile")
+def update_profile(
+    payload: ProfileUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    display_name = payload.display_name.strip()
+    if not display_name:
+        raise HTTPException(status_code=422, detail="Display name cannot be blank.")
+    user.display_name = display_name
+    db.commit()
+    db.refresh(user)
+    return {
+        "id": user.id,
+        "email": user.email,
+        "username": user.username or "",
+        "display_name": user.display_name,
+        "role": user.role,
+    }
 
 
 @router.post("/logout")
 def logout(res: Response):
-    res.delete_cookie(COOKIE, path="/")
+    res.delete_cookie(
+        COOKIE,
+        path="/",
+        secure=os.getenv("COOKIE_SECURE") == "1",
+        httponly=True,
+        samesite="lax",
+    )
     return {"ok": True}
