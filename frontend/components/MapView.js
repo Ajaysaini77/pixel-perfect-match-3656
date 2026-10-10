@@ -49,15 +49,15 @@ export default function MapView({
       if (!layersRef.current) return;
       layersRef.current.clearLayers();
       items.forEach(item => {
-        const colors = { tutor: "#0F9D8A", resource: "#D97706", vendor: item.live ? "#DC2626" : "#EA580C" };
+        const colors = { tutor: "#0F9D8A", resource: "#D97706", vendor: "#EA580C" };
         const marker = L.circleMarker([item.lat, item.lng], {
-          radius: selected?.id === item.id || item.live ? 11 : 8,
+          radius: selected?.id === item.id ? 11 : 8,
           color: "#fff",
           weight: 2,
           fillColor: colors[item.type] || "#0F9D8A",
           fillOpacity: 1,
         }).addTo(layersRef.current);
-        marker.bindTooltip(item.live ? `${item.name} · LIVE` : item.name, { direction: "top" });
+        marker.bindTooltip(item.name, { direction: "top" });
         marker.on("click", () => onSelect(item));
       });
       facilities.forEach(facility => {
@@ -128,7 +128,16 @@ export default function MapView({
       Delhi: [28.6139, 77.209],
     };
     const center = cityCenters[city];
-    if (center) map.setView(center, 12);
+    if (center) {
+      map.setView(center, 12);
+      return;
+    }
+    const points = [
+      ...facilities.map(facility => [facility.lat, facility.lng]),
+      ...onlinePlaces.map(place => [place.lat, place.lng]),
+      ...items.filter(item => Number.isFinite(item.lat) && Number.isFinite(item.lng)).map(item => [item.lat, item.lng]),
+    ];
+    if (points.length) map.fitBounds(points, { padding: [36, 36], maxZoom: 14 });
   }, [mapReady, city, focusLocation, facilities, onlinePlaces, items, selectedFacility, selectedPlace]);
 
   return <div ref={hostRef} className="h-full w-full" aria-label="Map showing nearby listings"/>;

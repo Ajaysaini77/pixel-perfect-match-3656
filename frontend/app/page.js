@@ -3,24 +3,32 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
-  ArrowLeft, ArrowRight, BadgeCheck, Check, ChevronDown, Camera,
+  ArrowLeft, ArrowRight, Check, ChevronDown, Camera,
   Eye, EyeOff, ExternalLink, Globe2, Home, LocateFixed, Map as MapIcon, MapPin,
-  MessageCircle, Moon, Navigation, Plus, KeyRound, Lock, LogOut, Search,
-  ShieldCheck, Star, Sun, UserRound, Wrench, X, Zap
+  Moon, Navigation, Plus, KeyRound, Lock, LogOut, Search,
+  Star, Sun, UserRound, Wrench, X, Zap
 } from "lucide-react";
 
 const MapView = dynamic(() => import("../components/MapView"), { ssr: false });
 const API = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const apiUrl = path => {
+  const url = new URL(API);
+  if (typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname)
+      && ["localhost", "127.0.0.1"].includes(url.hostname)) {
+    url.hostname = window.location.hostname;
+  }
+  return `${url.origin}${path}`;
+};
 
 /* ---------- constants (data that used to be repeated inside JSX) ---------- */
 const categoryMeta = {
   resource: { label: "Resources", icon: Wrench, tint: "#FFF1D6", color: "#A16207", desc: "Borrow, share, save" },
-  vendor: { label: "Live vendors", icon: Zap, tint: "#FCE7D5", color: "#C2410C", desc: "Find what's open now" },
+  vendor: { label: "Local vendors", icon: Zap, tint: "#FCE7D5", color: "#C2410C", desc: "Browse neighbourhood businesses" },
 };
-const EMPTY_FORM = { type: "resource", name: "", category: "", title: "", description: "", price: "" };
+const EMPTY_FORM = { type: "resource", name: "", category: "", city: "", title: "", description: "", price: "" };
 const TABS = [{ id: "home", label: "Home", icon: Home }, { id: "map", label: "Map", icon: MapIcon }, { id: "add", label: "Add", icon: Plus }, { id: "profile", label: "Profile", icon: UserRound }];
 const LINKS = [["home", "Home"], ["map", "Map"], ["profile", "Profile"]];
-const FILTERS = [["all", "For you"], ["resource", "Resources"], ["vendor", "Live vendors"]];
+const FILTERS = [["all", "For you"], ["resource", "Resources"], ["vendor", "Vendors"]];
 const RESOURCE_CATEGORIES = [
   "Infrastructure",
   "Consumables",
@@ -37,6 +45,18 @@ const RESOURCE_CATEGORIES = [
   "Creative & repair skills",
   "Other",
 ];
+const VENDOR_CATEGORIES = [
+  "Food & beverages",
+  "Groceries",
+  "Health & wellness",
+  "Home services",
+  "Repair & maintenance",
+  "Transport",
+  "Tools & equipment",
+  "Retail",
+  "Education & skills",
+  "Other",
+];
 const SEARCH_DICTIONARY = [
   "3D printer", "accommodation", "amenities", "books", "caregiver", "carpenter",
   "cleaning", "community hall", "computer", "coworking", "electrician", "equipment",
@@ -51,11 +71,9 @@ const CITY_CENTERS = {
   Delhi: { lat: 28.6139, lng: 77.209 },
 };
 const RADII = [1, 2, 5];
-const FIELDS = [["name", "Your name"], ["category", "Category"], ["title", "Listing title"], ["price", "Price / rate"]];
-const TRUST_ROWS = [["ID verified", "idVerified"], ["Completed bookings", "completedBookings"], ["Repeat customers", "repeatCustomers"]];
-const STATS = [["12", "Listings"], ["4.8★", "Rating"], ["3", "Requests"]];
+const FIELDS = [["name", "Publisher"], ["category", "Category"], ["city", "City"], ["title", "Listing title"], ["price", "Price / rate"]];
 const sub = "muted mt-1 text-sm text-slate-500";
-const authFetch = (path, body) => fetch(`${API}/api/auth/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(body) });
+const authFetch = (path, body) => fetch(apiUrl(`/api/auth/${path}`), { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(body) });
 const distanceInKm = (first, second) => {
   const radians = degrees => degrees * (Math.PI / 180);
   const latDelta = radians(second.lat - first.lat);
@@ -115,17 +133,6 @@ function parseCsvRecords(text) {
 }
 
 /* ---------- small components ---------- */
-function TrustRing({ score = 0, size = 48 }) {
-  const radius = 18, circumference = 2 * Math.PI * radius;
-  return <div className="relative shrink-0" style={{ width: size, height: size }}>
-    <svg viewBox="0 0 44 44" className="h-full w-full -rotate-90">
-      <circle cx="22" cy="22" r={radius} fill="none" stroke="#E2E8F0" strokeWidth="4" />
-      <circle cx="22" cy="22" r={radius} fill="none" stroke={score >= 85 ? "#0F9D8A" : score >= 70 ? "#F5A524" : "#94A3B8"} strokeWidth="4" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={circumference * (1 - score / 100)} />
-    </svg>
-    <span className="absolute inset-0 flex items-center justify-center text-xs font-bold">{score}</span>
-  </div>;
-}
-
 function CategoryCard({ type, onClick }) {
   const meta = categoryMeta[type], Icon = meta.icon;
   return <button onClick={onClick} className="surface group flex min-h-[112px] items-center gap-3 rounded-2xl border border-slate-100 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-teal-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 sm:p-5">
@@ -134,21 +141,30 @@ function CategoryCard({ type, onClick }) {
   </button>;
 }
 
+function ListingImage({ item, className }) {
+  const meta = categoryMeta[item.type] || categoryMeta.resource;
+  const Icon = meta.icon;
+  return item.image
+    ? <img src={item.image} alt="" className={className} />
+    : <div aria-hidden="true" className={`${className} flex items-center justify-center bg-slate-100 text-teal-800`}>
+      <Icon size={32} />
+    </div>;
+}
+
 function ListingCard({ item, onOpen, compact = false }) {
   const meta = categoryMeta[item.type] || categoryMeta.resource; // fallback: unknown types no longer crash the card
   return <button onClick={() => onOpen(item)} className={`surface group flex w-full gap-3 rounded-2xl border border-slate-100 bg-white p-3 text-left shadow-sm transition hover:shadow-md ${compact ? "min-w-[280px] max-w-[320px]" : ""}`}>
     <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-xl bg-slate-100 sm:h-32 sm:w-32">
-      <img src={item.image} alt="" className="h-full w-full object-cover transition group-hover:scale-105" />
-      {item.live && <span className="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-white/95 px-2 py-1 text-[10px] font-bold text-amber-700 shadow"><span className="live-pulse h-2 w-2 rounded-full bg-amber-500" />LIVE NOW</span>}
+      <ListingImage item={item} className="h-full w-full object-cover transition group-hover:scale-105" />
     </div>
     <div className="min-w-0 flex-1 py-0.5">
-      <div className="flex items-start justify-between gap-2"><span className="truncate text-sm font-bold sm:text-base">{item.name}</span><TrustRing score={item.trustScore} size={42} /></div>
+      <div className="flex items-start justify-between gap-2"><span className="truncate text-sm font-bold sm:text-base">{item.name}</span><span className="shrink-0 text-xs font-bold text-teal-800">{item.price}</span></div>
       <p className="muted mt-1 truncate text-xs text-slate-500">{item.title}</p>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <span className="rounded-full px-2 py-1 text-[10px] font-semibold" style={{ background: meta.tint, color: meta.color }}>{item.category}</span>
-        {item.verified && <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700"><BadgeCheck size={12} /> Verified</span>}
+        {item.isSample && <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">Example</span>}
       </div>
-      <div className="mt-2 flex items-center gap-3 text-xs text-slate-500"><span className="flex items-center gap-1"><Star size={13} className="fill-amber-400 text-amber-400" /><b className="text-slate-700">{item.rating || "New"}</b> <span>({item.reviewCount})</span></span><span className="flex items-center gap-1"><MapPin size={12} />{item.distanceKm} km</span></div>
+      <div className="mt-2 flex items-center gap-1 text-xs text-slate-500"><MapPin size={12} />{item.distanceKm == null ? item.city || "Location not shared" : `${item.distanceKm} km away`}</div>
     </div>
   </button>;
 }
@@ -159,17 +175,12 @@ function BottomNav({ active, setActive, onAdd }) {
   </nav>;
 }
 
-function ProgressRow({ label, value }) {
-  return <div className="mb-3"><div className="mb-1 flex justify-between text-xs"><span className="muted text-slate-500">{label}</span><b>{value}%</b></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-teal-600" style={{ width: `${value}%` }} /></div></div>;
-}
-
 const BackBtn = ({ onClick, label }) => <button onClick={onClick} className="mb-4 flex items-center gap-2 text-sm font-bold text-teal-700"><ArrowLeft size={17} /> {label}</button>;
 
 /* ---------- page ---------- */
 export default function Page() {
   const resultsRef = useRef(null);
   const profileImageInput = useRef(null);
-  const vendorWatchRef = useRef(null);
   const userWatchRef = useRef(null);
   const [items, setItems] = useState([]);
   const [facilities, setFacilities] = useState([]);
@@ -180,6 +191,7 @@ export default function Page() {
   const [onlinePlacesError, setOnlinePlacesError] = useState("");
   const [onlinePlacesLoaded, setOnlinePlacesLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [listingsError, setListingsError] = useState("");
   const [active, setActive] = useState("home");
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -200,8 +212,6 @@ export default function Page() {
   const [dark, setDark] = useState(false);
   const [step, setStep] = useState(1);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [shareVendorLocation, setShareVendorLocation] = useState(false);
-  const [trackingVendorIds, setTrackingVendorIds] = useState([]);
   const [profileEditing, setProfileEditing] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: "", username: "", image: "" });
   const [profileSaved, setProfileSaved] = useState(false);
@@ -210,7 +220,20 @@ export default function Page() {
   const [success, setSuccess] = useState(false);
   const [toast, setToast] = useState("");
   const [user, setUser] = useState(null);
-  const [auth, setAuth] = useState({ mode: "login", step: "creds", email: "", password: "", passwordConfirm: "", username: "", otp: "", error: "", notice: "", busy: false, wait: 0 });
+  const [authRestoring, setAuthRestoring] = useState(true);
+  const [auth, setAuth] = useState({ mode: "login", role: "member", step: "creds", email: "", password: "", passwordConfirm: "", username: "", otp: "", error: "", notice: "", busy: false, wait: 0 });
+  const [reviewForm, setReviewForm] = useState({ rating: 5, text: "" });
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewError, setReviewError] = useState("");
+  const [vendorProfile, setVendorProfile] = useState(null);
+  const [vendorItems, setVendorItems] = useState([]);
+  const [vendorDashboardLoading, setVendorDashboardLoading] = useState(false);
+  const [vendorDashboardError, setVendorDashboardError] = useState("");
+  const [vendorProfileForm, setVendorProfileForm] = useState({ business_name: "", category: "", description: "", city: "" });
+  const [vendorItemForm, setVendorItemForm] = useState({ title: "", description: "", price: "", quantity: "1" });
+  const [vendorBusy, setVendorBusy] = useState(false);
+  const [vendorFormError, setVendorFormError] = useState("");
+  const [vendorItemLocation, setVendorItemLocation] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => { document.documentElement.classList.toggle("dark", dark); }, [dark]);
@@ -224,54 +247,67 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
+    if (!user?.id) return;
     try {
-      const savedProfile = JSON.parse(localStorage.getItem("padosi-profile") || "{}");
-      setProfileForm({
-        name: typeof savedProfile.name === "string" ? savedProfile.name : "",
-        username: typeof savedProfile.username === "string" ? savedProfile.username : "",
+      const savedProfile = JSON.parse(localStorage.getItem(`padosi-profile-${user.id}`) || "{}");
+      setProfileForm(current => ({
+        ...current,
+        name: user.display_name || "",
+        username: user.username || "",
         image: typeof savedProfile.image === "string" ? savedProfile.image : "",
-      });
+      }));
     } catch {
-      localStorage.removeItem("padosi-profile");
+      localStorage.removeItem(`padosi-profile-${user.id}`);
     }
-  }, []);
-
-  useEffect(() => {
-    if (!trackingVendorIds.length || !navigator.geolocation) return undefined;
-
-    const watchId = navigator.geolocation.watchPosition(
-      ({ coords }) => {
-        if (document.visibilityState !== "visible") return;
-        const trackedIds = new Set(trackingVendorIds);
-        const updateLocation = item => trackedIds.has(item.id)
-          ? { ...item, lat: coords.latitude, lng: coords.longitude, live: true }
-          : item;
-        setItems(current => current.map(updateLocation));
-        setSelected(current => current ? updateLocation(current) : current);
-      },
-      () => notify("Live vendor location access ended. The last shared position remains on this device."),
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
-    );
-    vendorWatchRef.current = watchId;
-
-    return () => {
-      navigator.geolocation.clearWatch(watchId);
-      vendorWatchRef.current = null;
-    };
-  }, [trackingVendorIds]);
+  }, [user]);
 
   useEffect(() => () => {
-    if (vendorWatchRef.current !== null && navigator.geolocation) {
-      navigator.geolocation.clearWatch(vendorWatchRef.current);
-    }
     if (userWatchRef.current !== null && navigator.geolocation) {
       navigator.geolocation.clearWatch(userWatchRef.current);
     }
   }, []);
 
   useEffect(() => { // restore session from the httpOnly cookie
-    fetch(`${API}/api/auth/me`, { credentials: "include" }).then(r => r.ok ? r.json() : null).then(d => d && setUser(d)).catch(() => {});
+    fetch(apiUrl("/api/auth/me"), { credentials: "include" })
+      .then(async response => {
+        if (response.status === 401) return null;
+        if (!response.ok) throw new Error("Could not restore your sign-in session.");
+        return response.json();
+      })
+      .then(data => {
+        if (!data) return;
+        setUser(data);
+        if (data.role === "vendor") setActive("vendor");
+      })
+      .catch(error => setToast(error.message || "Could not restore your sign-in session."))
+      .finally(() => setAuthRestoring(false));
   }, []);
+
+  useEffect(() => {
+    if (active !== "vendor" || user?.role !== "vendor") return;
+    const controller = new AbortController();
+    setVendorDashboardLoading(true);
+    setVendorDashboardError("");
+    fetch(apiUrl("/api/vendor/dashboard"), { credentials: "include", signal: controller.signal })
+      .then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || "Could not load the vendor dashboard.");
+        return data;
+      })
+      .then(data => {
+        setVendorProfile(data.profile);
+        setVendorItems(data.items || []);
+        if (data.profile) setVendorProfileForm(data.profile);
+        else setVendorProfileForm(current => ({ ...current, business_name: current.business_name || "", city: current.city || "" }));
+      })
+      .catch(error => {
+        if (error.name !== "AbortError") setVendorDashboardError(error.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setVendorDashboardLoading(false);
+      });
+    return () => controller.abort();
+  }, [active, user]);
 
   useEffect(() => { // resend countdown
     if (auth.wait <= 0) return;
@@ -280,10 +316,16 @@ export default function Page() {
   }, [auth.wait]);
 
   useEffect(() => {
-    fetch(`${API}/api/listings`)
+    fetch(apiUrl("/api/listings"))
       .then(r => { if (!r.ok) throw new Error("API unavailable"); return r.json(); })
-      .then(data => setItems(data.items || []))
-      .catch(() => setToast("Can't reach FastAPI yet. Start the backend on port 8000."))
+      .then(data => {
+        setItems(data.items || []);
+        setListingsError("");
+      })
+      .catch(() => {
+        setListingsError("Could not connect to the listings service. Check that the backend is running.");
+        setToast("Can't reach FastAPI yet. Start the backend on port 8000.");
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -337,7 +379,7 @@ export default function Page() {
     const query = search.trim().toLowerCase();
     return items.filter(item => {
       const matchesFilter = filter === "all" || item.type === filter;
-      const matchesRadius = item.distanceKm <= radius;
+      const matchesRadius = item.distanceKm == null || item.distanceKm <= radius;
       const searchableText = `${item.name} ${item.category} ${item.title} ${item.description} ${item.price}`.toLowerCase();
       return matchesFilter && matchesRadius && (!query || searchableText.includes(query));
     });
@@ -361,29 +403,176 @@ export default function Page() {
     requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
   const clearSearch = () => setSearch("");
-  const openListing = item => { setSelected(item); setSelectedFacility(null); setActive("detail"); };
+  const openListing = item => {
+    setSelected(item);
+    setReviewForm({ rating: 5, text: "" });
+    setReviewError("");
+    setSelectedFacility(null);
+    setActive("detail");
+  };
   const nav = page => { setSelected(null); setSelectedFacility(null); setSelectedPlace(null); setProfileEditing(false); setActive(page); };
-  const openAdd = () => { setStep(1); setSuccess(false); setShareVendorLocation(false); nav("add"); };
+  const openAdd = () => {
+    if (authRestoring) {
+      notify("Checking your sign-in session. Try again in a moment.");
+      return;
+    }
+    if (!user) {
+      patchAuth({ mode: "login", role: "member", error: "" });
+      nav("login");
+      notify("Sign in to publish a listing.");
+      return;
+    }
+    setStep(1);
+    setSuccess(false);
+    setForm({ ...EMPTY_FORM, name: user.display_name || (user.username ? `@${user.username}` : "Neighbour") });
+    nav("add");
+  };
   const notify = message => { setToast(message); setTimeout(() => setToast(""), 3000); };
   const setField = key => e => setForm(f => ({ ...f, [key]: e.target.value }));
   const updateProfileField = key => event => setProfileForm(current => ({ ...current, [key]: event.target.value }));
+  const setVendorProfileField = key => event => setVendorProfileForm(current => ({ ...current, [key]: event.target.value }));
+  const setVendorItemField = key => event => setVendorItemForm(current => ({ ...current, [key]: event.target.value }));
 
-  const saveProfile = event => {
+  const saveVendorProfile = async event => {
     event.preventDefault();
-    const normalized = {
-      name: profileForm.name.trim(),
-      username: profileForm.username.trim().replace(/^@/, ""),
-      image: profileForm.image,
-    };
-    if (!normalized.name || !normalized.username) return;
+    setVendorBusy(true);
+    setVendorFormError("");
     try {
-      localStorage.setItem("padosi-profile", JSON.stringify(normalized));
-      setProfileForm(normalized);
+      const response = await fetch(apiUrl("/api/vendor/profile"), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(vendorProfileForm),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Could not save your vendor profile.");
+      setVendorProfile(data);
+      notify("Vendor profile saved.");
+    } catch (error) {
+      setVendorFormError(error.message);
+    } finally {
+      setVendorBusy(false);
+    }
+  };
+
+  const addVendorItem = async event => {
+    event.preventDefault();
+    if (!vendorProfile) return;
+    setVendorBusy(true);
+    setVendorFormError("");
+    try {
+      let coordinates = {};
+      if (vendorItemLocation) {
+        if (!navigator.geolocation) throw new Error("Location access is not available in this browser.");
+        const position = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(
+            ({ coords }) => resolve({ lat: coords.latitude, lng: coords.longitude }),
+            error => reject(new Error(error.code === error.PERMISSION_DENIED
+              ? "Location permission was denied; enable it in browser settings or turn off the map location option."
+              : "Could not get your location. Try again or turn off the map location option.")),
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+          );
+        });
+        coordinates = position;
+      }
+      const response = await fetch(apiUrl("/api/listings"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          name: vendorProfile.business_name,
+          type: "vendor",
+          category: vendorProfile.category,
+          city: vendorProfile.city,
+          title: vendorItemForm.title.trim(),
+          description: vendorItemForm.description.trim(),
+          price: vendorItemForm.price.trim(),
+          quantity: Number(vendorItemForm.quantity),
+          ...coordinates,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Could not save this item.");
+      setVendorItems(current => [data.item, ...current]);
+      setItems(current => [data.item, ...current.filter(item => item.id !== data.item.id)]);
+      setVendorItemForm({ title: "", description: "", price: "", quantity: "1" });
+      setVendorItemLocation(false);
+      notify("Item saved to your vendor dashboard.");
+    } catch (error) {
+      setVendorFormError(error.message || "Could not save this item.");
+    } finally {
+      setVendorBusy(false);
+    }
+  };
+
+  const removeVendorItem = async item => {
+    setVendorFormError("");
+    try {
+      const response = await fetch(apiUrl(`/api/vendor/items/${item.id.replace("saved-", "")}`), {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Could not remove this item.");
+      setVendorItems(current => current.filter(existing => existing.id !== item.id));
+      setItems(current => current.filter(existing => existing.id !== item.id));
+      notify("Inventory item removed.");
+    } catch (error) {
+      setVendorFormError(error.message);
+    }
+  };
+
+  const submitReview = async event => {
+    event.preventDefault();
+    if (!user || !selected?.id.startsWith("saved-")) return;
+    setReviewBusy(true);
+    setReviewError("");
+    try {
+      const response = await fetch(apiUrl(`/api/listings/${selected.id}/reviews`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ rating: Number(reviewForm.rating), text: reviewForm.text.trim() }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Could not save your review.");
+      setSelected(data.item);
+      setItems(current => current.map(item => item.id === data.item.id ? data.item : item));
+      setReviewForm({ rating: 5, text: "" });
+      notify("Your review was published.");
+    } catch (error) {
+      setReviewError(error.message || "Could not save your review.");
+    } finally {
+      setReviewBusy(false);
+    }
+  };
+
+  const saveProfile = async event => {
+    event.preventDefault();
+    if (!user) return;
+    const displayName = profileForm.name.trim();
+    if (!displayName) return;
+    try {
+      const response = await fetch(apiUrl("/api/auth/profile"), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ display_name: displayName }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Could not save your profile.");
+      setUser(data);
+      setProfileForm(current => ({ ...current, name: data.display_name || "", username: data.username || "" }));
       setProfileEditing(false);
       setProfileSaved(true);
-      notify("Profile saved on this device.");
-    } catch {
-      notify("Could not save your profile image. Choose a smaller image and try again.");
+      try {
+        localStorage.setItem(`padosi-profile-${user.id}`, JSON.stringify({ image: profileForm.image }));
+        notify("Profile saved to your account.");
+      } catch {
+        notify("Your name was saved, but the profile photo could not be saved in this browser.");
+      }
+    } catch (error) {
+      notify(error.message || "Could not save your profile.");
     }
   };
 
@@ -431,11 +620,20 @@ export default function Page() {
   const patchAuth = p => setAuth(a => ({ ...a, ...p }));
   const completeSignIn = data => {
     setUser(data);
-    if (data.username) setProfileForm(current => ({ ...current, username: data.username }));
+    setProfileForm(current => ({
+      ...current,
+      name: data.display_name || "",
+      username: data.username || "",
+    }));
     patchAuth({ step: "creds", password: "", otp: "", error: "", notice: "", wait: 0 });
-    setLocationPrompt(true);
-    setUserLocationError("");
-    nav("home");
+    if (data.role === "vendor") {
+      setLocationPrompt(false);
+      nav("vendor");
+    } else {
+      setLocationPrompt(true);
+      setUserLocationError("");
+      nav("home");
+    }
   };
   const otpNotice = data => data.cooldown
     ? `A recent code is still valid. Use that email; you can request another in ${data.resend_after} seconds.`
@@ -463,7 +661,10 @@ export default function Page() {
       return;
     }
     const credentials = { email: auth.email.trim().toLowerCase(), password: auth.password };
-    if (auth.mode === "register") credentials.username = auth.username.trim().toLowerCase();
+    if (auth.mode === "register") {
+      credentials.username = auth.username.trim().toLowerCase();
+      credentials.role = auth.role;
+    }
     authCall(auth.mode, credentials, data => {
       if (auth.mode === "login") {
         completeSignIn(data);
@@ -524,12 +725,19 @@ export default function Page() {
     );
   };
   const logout = async () => {
-    await fetch(`${API}/api/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {});
+    try {
+      const response = await fetch(apiUrl("/api/auth/logout"), { method: "POST", credentials: "include" });
+      if (!response.ok) throw new Error("The server could not end your session.");
+    } catch (error) {
+      notify(error.message || "Could not sign out. Check your connection and try again.");
+      return;
+    }
     if (userWatchRef.current !== null && navigator.geolocation) navigator.geolocation.clearWatch(userWatchRef.current);
     userWatchRef.current = null;
     setTrackingUserLocation(false);
     setUserLocation(null);
     setUser(null);
+    setProfileForm({ name: "", username: "", image: "" });
     setLocationPrompt(false);
     nav("home");
     notify("Signed out");
@@ -537,36 +745,31 @@ export default function Page() {
 
   async function submitListing() {
     try {
-      let vendorPosition = null;
-      if (form.type === "vendor" && shareVendorLocation && navigator.geolocation) {
-        vendorPosition = await new Promise(resolve => {
-          navigator.geolocation.getCurrentPosition(
-            position => resolve(position.coords),
-            () => resolve(null),
-            { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
-          );
-        });
+      if (form.type === "vendor" && user?.role !== "vendor") {
+        throw new Error("Vendor accounts must finish vendor setup in the Vendor dashboard before adding inventory.");
       }
-      const response = await fetch(`${API}/api/listings`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
-      if (!response.ok) throw new Error();
-      const data = await response.json();
+      const response = await fetch(apiUrl("/api/listings"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          ...form,
+          quantity: 1,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.detail || "Could not save this listing.");
+      const data = result;
       const createdItem = {
         ...data.item,
-        live: form.type === "vendor" && Boolean(vendorPosition),
-        ...(vendorPosition ? { lat: vendorPosition.latitude, lng: vendorPosition.longitude } : {}),
       };
       setItems(prev => [createdItem, ...prev]);
-      if (form.type === "vendor" && shareVendorLocation && vendorPosition) {
-        setTrackingVendorIds(ids => [...new Set([...ids, createdItem.id])]);
-        notify("Vendor published. Live location is shared from this device while this app is open.");
-      } else if (form.type === "vendor" && shareVendorLocation) {
-        notify("Vendor published, but location permission was unavailable. Live tracking is off.");
-      }
       setSuccess(true);
-    } catch { notify("Could not submit. Check that FastAPI is running."); }
+    } catch (error) { notify(error.message || "Could not submit. Check that FastAPI is running."); }
   }
 
   const facilityCities = [...new Set(facilities.map(facility => facility.city))];
+  const listingCities = [...new Set(items.map(item => item.city).filter(Boolean))];
   const mapNeedle = mapSearch.trim().toLowerCase();
   const visibleFacilities = facilities.filter(facility => {
     const matchesCity = mapCity === "All cities" || facility.city === mapCity;
@@ -574,23 +777,23 @@ export default function Page() {
     return matchesCity && (!mapNeedle || searchable.includes(mapNeedle));
   });
   const mapCategories = [...new Set(items.map(item => item.category).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  const visibleMapItems = (mapCity === "Meerut" || mapCity === "All cities")
-    ? items.filter(item => {
+  const mapItemDistance = item => userLocation && Number.isFinite(item.lat) && Number.isFinite(item.lng)
+    ? distanceInKm(userLocation, { lat: item.lat, lng: item.lng })
+    : item.distanceKm;
+  const visibleMapItems = items.filter(item => {
       const searchable = `${item.name} ${item.category} ${item.title} ${item.description}`.toLowerCase();
-      const itemDistance = userLocation
-        ? distanceInKm(userLocation, { lat: item.lat, lng: item.lng })
-        : item.distanceKm;
-      return (filter === "all" || item.type === filter)
+      const itemDistance = mapItemDistance(item);
+      const hasCoordinates = Number.isFinite(item.lat) && Number.isFinite(item.lng);
+      return hasCoordinates
+        && (mapCity === "All cities" || (item.city || "Meerut") === mapCity)
+        && (filter === "all" || item.type === filter)
         && (mapCategory === "all" || item.category === mapCategory)
-        && itemDistance <= radius
+        && (itemDistance == null || itemDistance <= radius)
         && (!mapNeedle || searchable.includes(mapNeedle));
     }).map(item => ({
       ...item,
-      distanceKm: Number((userLocation
-        ? distanceInKm(userLocation, { lat: item.lat, lng: item.lng })
-        : item.distanceKm).toFixed(1)),
-    }))
-    : [];
+      distanceKm: mapItemDistance(item) == null ? null : Number(mapItemDistance(item).toFixed(1)),
+    }));
   const visibleOnlinePlaces = onlinePlaces.filter(place => {
     const searchable = `${place.name} ${place.category} ${place.city}`.toLowerCase();
     return place.city === mapCity && (!mapNeedle || searchable.includes(mapNeedle));
@@ -605,13 +808,6 @@ export default function Page() {
     setOnlinePlaces([]);
     setOnlinePlacesLoaded(false);
     setOnlinePlacesError("");
-  };
-  const stopLiveVendorSharing = () => {
-    const trackedIds = new Set(trackingVendorIds);
-    setTrackingVendorIds([]);
-    setItems(current => current.map(item => trackedIds.has(item.id) ? { ...item, live: false } : item));
-    setSelected(current => current && trackedIds.has(current.id) ? { ...current, live: false } : current);
-    notify("Live location sharing stopped.");
   };
   const selectFacility = facility => {
     setSelected(null);
@@ -693,10 +889,11 @@ export default function Page() {
       <button onClick={() => nav("home")} className="flex items-center gap-2"><span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-teal-600 text-white"><MapPin size={22} /></span><span className="text-xl font-black tracking-tight">Padosi<span className="text-teal-600">.</span><span className="muted ml-2 hidden text-xs font-medium text-slate-400 sm:inline">Good things live nearby</span></span></button>
       <div className="hidden items-center gap-1 md:flex">
         {LINKS.map(([id, label]) => <button key={id} onClick={() => nav(id)} className={`rounded-full px-4 py-2 text-sm font-semibold ${active === id ? "bg-teal-50 text-teal-700" : "text-slate-500 hover:bg-slate-50"}`}>{label}</button>)}
+        {user?.role === "vendor" && <button onClick={() => nav("vendor")} className={`rounded-full px-4 py-2 text-sm font-semibold ${active === "vendor" ? "bg-teal-50 text-teal-700" : "text-slate-500 hover:bg-slate-50"}`}>Vendor dashboard</button>}
         <button onClick={openAdd} className="ml-2 flex items-center gap-2 rounded-full bg-teal-600 px-4 py-2 text-sm font-bold text-white hover:bg-teal-700"><Plus size={16} /> Add listing</button>
       </div>
       <div className="flex items-center gap-2">
-        <button aria-label={user ? "Account" : "Sign in"} onClick={() => nav(user ? "profile" : "login")} className="flex h-10 items-center gap-2 rounded-full bg-teal-600 px-3 text-sm font-bold text-white hover:bg-teal-700 sm:px-4">{user ? <UserRound size={16} /> : <Lock size={16} />}<span className="hidden sm:inline">{user ? "Account" : "Sign in"}</span></button>
+        <button aria-label={authRestoring ? "Checking sign-in" : user ? "Account" : "Sign in"} disabled={authRestoring} onClick={() => nav(user ? "profile" : "login")} className="flex h-10 items-center gap-2 rounded-full bg-teal-600 px-3 text-sm font-bold text-white hover:bg-teal-700 disabled:opacity-70 sm:px-4">{user ? <UserRound size={16} /> : <Lock size={16} />}<span className="hidden sm:inline">{authRestoring ? "Checking…" : user ? "Account" : "Sign in"}</span></button>
         <button aria-label="Toggle dark mode" onClick={() => setDark(v => !v)} className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-700">{dark ? <Sun size={18} /> : <Moon size={18} />}</button>
       </div>
     </div>
@@ -751,7 +948,8 @@ export default function Page() {
       <div className="mb-4 flex gap-2 overflow-x-auto pb-1">{FILTERS.map(([id, label]) => <button key={id} onClick={() => setFilter(id)} className={`shrink-0 rounded-full px-4 py-2 text-xs font-bold transition ${filter === id ? "bg-teal-700 text-white" : "surface border border-slate-200 bg-white text-slate-600 hover:border-teal-200 hover:text-teal-700"}`}>{label}</button>)}</div>
       <div className="grid gap-3 md:grid-cols-2">
         {filtered.map(item => <ListingCard key={item.id} item={item} onOpen={openListing} />)}
-        {!loading && !filtered.length && <div className="surface col-span-full rounded-2xl bg-white p-8 text-center"><Search className="mx-auto text-slate-400" /><p className="mt-2 font-bold">{search.trim() ? "No results found" : "No matches nearby"}</p><p className="muted mt-1 text-sm text-slate-500">{search.trim() ? "Try another keyword or browse all listings." : "Try increasing your search area."}</p><button className="mt-3 text-sm font-bold text-teal-700" onClick={() => { setFilter("all"); setSearch(""); setRadius(5); }}>Clear filters</button></div>}
+        {!loading && listingsError && <div role="alert" className="surface col-span-full rounded-2xl bg-white p-6 text-center"><p className="font-bold">Listings are temporarily unavailable</p><p className="muted mt-1 text-sm text-slate-500">{listingsError}</p><button className="mt-3 text-sm font-bold text-teal-700" onClick={() => window.location.reload()}>Try again</button></div>}
+        {!loading && !listingsError && !filtered.length && <div className="surface col-span-full rounded-2xl bg-white p-8 text-center"><Search className="mx-auto text-slate-400" /><p className="mt-2 font-bold">{items.length === 0 ? "No listings have been published yet" : search.trim() ? "No results found" : "No matches nearby"}</p><p className="muted mt-1 text-sm text-slate-500">{items.length === 0 ? "Publish the first neighbourhood resource or vendor item." : search.trim() ? "Try another keyword or browse all listings." : "Try increasing your search area."}</p><button className="mt-3 text-sm font-bold text-teal-700" onClick={items.length === 0 ? openAdd : () => { setFilter("all"); setSearch(""); setRadius(5); }}>{items.length === 0 ? "Publish a listing" : "Clear filters"}</button></div>}
       </div>
     </section>
   </>;
@@ -778,8 +976,7 @@ export default function Page() {
           setOnlinePlacesLoaded(false);
           setOnlinePlacesError("");
         }} className={`${input} mt-2`}>
-          {facilityCities.includes("Meerut") && <option value="Meerut">Meerut</option>}
-          {facilityCities.filter(city => city !== "Meerut").map(city => <option key={city} value={city}>{city}</option>)}
+          {[...new Set([...facilityCities, ...listingCities, "Meerut"])].sort().map(city => <option key={city} value={city}>{city}</option>)}
           <option value="All cities">All cities</option>
         </select>
       </label>
@@ -805,12 +1002,9 @@ export default function Page() {
         </button>
       </div>
     </div>
-    {(trackingUserLocation || trackingVendorIds.length > 0) && <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
-      <span><b>Location tracking is on.</b> {trackingUserLocation ? "Your position and nearby listing distances update on this device while the app is open." : `This device updates ${trackingVendorIds.length} vendor ${trackingVendorIds.length === 1 ? "pin" : "pins"} while the app is open.`}</span>
-      <div className="flex gap-2">
-        {trackingUserLocation && <button onClick={stopUserLocationTracking} className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-emerald-800">Stop my tracking</button>}
-        {trackingVendorIds.length > 0 && <button onClick={stopLiveVendorSharing} className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-emerald-800">Stop vendor sharing</button>}
-      </div>
+    {trackingUserLocation && <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+      <span><b>Location tracking is on.</b> Your position and nearby listing distances update on this device while the app is open.</span>
+      <button onClick={stopUserLocationTracking} className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-emerald-800">Stop my tracking</button>
     </div>}
     {userLocationError && <p role="alert" className="mb-3 rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-700">{userLocationError}</p>}
     {facilitiesError && <p role="alert" className="mb-3 rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-700">{facilitiesError}</p>}
@@ -897,34 +1091,46 @@ export default function Page() {
   const detail = selected && <section className="mx-auto max-w-3xl">
     <BackBtn onClick={() => nav("home")} label="Back to discovery" />
     <div className="surface overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-sm">
-      <div className="relative h-64 sm:h-80"><img src={selected.image} alt="" className="h-full w-full object-cover" /><span className="absolute bottom-4 left-4 rounded-full bg-white px-3 py-1.5 text-xs font-bold">{selected.category}</span>{selected.live && <span className="absolute right-4 top-4 rounded-full bg-amber-400 px-3 py-1.5 text-xs font-black text-amber-950">● LIVE NOW</span>}</div>
+      <div className="relative h-64 sm:h-80"><ListingImage item={selected} className="h-full w-full object-cover" /><span className="absolute bottom-4 left-4 rounded-full bg-white px-3 py-1.5 text-xs font-bold">{selected.category}</span></div>
       <div className="p-5 sm:p-7">
         <div className="flex items-start justify-between gap-4">
           <div><h1 className="text-2xl font-black">{selected.name}</h1><p className={sub}>{selected.title}</p>
-            <div className="mt-2 flex flex-wrap gap-2">{selected.verified && <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700"><BadgeCheck size={13} className="mr-1 inline" />Verified</span>}<span className="text-xs text-slate-500"><Star size={13} className="mr-1 inline fill-amber-400 text-amber-400" />{selected.rating} ({selected.reviewCount} reviews)</span></div>
+            {selected.reviewCount > 0 && <div className="mt-2 flex items-center gap-1 text-sm text-slate-600"><Star size={15} className="fill-amber-400 text-amber-400" />{selected.rating} · {selected.reviewCount} {selected.reviewCount === 1 ? "review" : "reviews"}</div>}
+            {selected.isSample && <span className="mt-2 inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">Example listing</span>}
           </div>
-          <TrustRing score={selected.trustScore} size={64} />
         </div>
         <p className="mt-5 leading-7 text-slate-600">{selected.description}</p>
-        <div className="mt-5 rounded-2xl bg-teal-50 p-4">
-          <div className="flex items-center justify-between"><h3 className="font-bold text-teal-950">Trust & reliability</h3><span className="text-xl font-black text-teal-700">{selected.trustScore}/100</span></div>
-          <div className="mt-4">{TRUST_ROWS.map(([label, key]) => <ProgressRow key={key} label={label} value={selected.trustBreakdown?.[key] || 0} />)}</div>
-        </div>
-        <h3 className="mt-7 text-lg font-black">Neighbour reviews</h3>
-        <div className="mt-3 space-y-3">{(selected.reviews || []).map((review, i) => <div key={i} className="rounded-2xl bg-slate-50 p-4">
-          <div className="flex items-center justify-between"><b className="text-sm">{review.name}</b><span className="text-xs text-amber-600">{"★".repeat(review.rating)}</span></div>
-          <p className="muted mt-2 text-sm text-slate-600">{review.text}</p>
-          {review.verifiedBooking && <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700"><ShieldCheck size={12} />Verified booking</span>}
-        </div>)}</div>
-        <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-5"><div><p className="text-xs text-slate-500">Starting at</p><p className="text-xl font-black">{selected.price}</p></div><span className="flex items-center gap-1 text-sm text-slate-500"><MapPin size={15} />{selected.distanceKm} km away</span></div>
+        <div className="mt-7 flex items-center justify-between gap-3"><h3 className="text-lg font-black">Neighbour reviews</h3><span className="text-xs text-slate-500">{selected.reviewCount || 0} total</span></div>
+        {selected.reviews?.length
+          ? <div className="mt-3 space-y-3">{selected.reviews.map((review, index) => <div key={`${review.reviewerId}-${index}`} className="rounded-2xl bg-slate-50 p-4">
+            <div className="flex items-center justify-between gap-3"><b className="text-sm">{review.name}</b><span className="text-xs text-amber-600">{"★".repeat(review.rating)}</span></div>
+            <p className="muted mt-2 text-sm text-slate-600">{review.text}</p>
+          </div>)}</div>
+          : <p className="muted mt-3 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">No reviews yet.</p>}
+        {selected.id.startsWith("saved-") && user && selected.ownerId !== user.id && (
+          selected.reviews?.some(review => review.reviewerId === user.id)
+            ? <p className="mt-4 rounded-xl bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">You have reviewed this listing.</p>
+            : <form onSubmit={submitReview} className="mt-4 rounded-2xl border border-slate-200 p-4">
+              <h4 className="font-bold">Share your review</h4>
+              <label className="mt-3 block text-sm font-semibold">Rating
+                <select value={reviewForm.rating} onChange={event => setReviewForm(current => ({ ...current, rating: event.target.value }))} className={input}>
+                  {[5, 4, 3, 2, 1].map(rating => <option key={rating} value={rating}>{rating} {rating === 1 ? "star" : "stars"}</option>)}
+                </select>
+              </label>
+              <label className="mt-3 block text-sm font-semibold">Your review
+                <textarea required minLength={3} maxLength={800} rows={3} value={reviewForm.text} onChange={event => setReviewForm(current => ({ ...current, text: event.target.value }))} className={input} placeholder="Describe your experience" />
+              </label>
+              {reviewError && <p role="alert" className="mt-2 text-sm font-semibold text-rose-700">{reviewError}</p>}
+              <button disabled={reviewBusy} className="mt-3 rounded-xl bg-teal-700 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">{reviewBusy ? "Publishing…" : "Publish review"}</button>
+            </form>
+        )}
+        {selected.id.startsWith("saved-") && !user && <button onClick={() => { patchAuth({ mode: "login", error: "" }); nav("login"); }} className="mt-4 rounded-xl border border-teal-700 px-4 py-2.5 text-sm font-bold text-teal-800">Sign in to leave a review</button>}
+        <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-5"><div><p className="text-xs text-slate-500">Price / rate</p><p className="text-xl font-black">{selected.price}</p></div><span className="flex items-center gap-1 text-sm text-slate-500"><MapPin size={15} />{selected.distanceKm == null ? selected.city || "Location not shared" : `${selected.distanceKm} km away`}</span></div>
       </div>
     </div>
-    <div className="surface fixed inset-x-0 bottom-0 z-20 flex items-center gap-3 border-t border-slate-200 bg-white p-3 md:sticky md:mt-4 md:rounded-2xl md:border">
-      <button onClick={() => notify("Demo chat opened — messaging is not connected yet.")} className="flex h-12 w-12 items-center justify-center rounded-xl border border-slate-200"><MessageCircle size={20} /></button>
-      {selected.type === "vendor"
-        ? <a href={`https://www.google.com/maps/dir/?api=1&destination=${selected.lat},${selected.lng}`} target="_blank" rel="noreferrer" className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-700 py-3.5 text-sm font-bold text-white"><Navigation size={17} /> Navigate to vendor <ExternalLink size={15} /></a>
-        : <button onClick={() => notify("Request noted for demo.")} className="flex-1 rounded-xl bg-teal-600 py-3.5 text-sm font-bold text-white">Request to borrow</button>}
-    </div>
+    {Number.isFinite(selected.lat) && Number.isFinite(selected.lng) && <div className="surface sticky bottom-0 mt-4 flex items-center border-t border-slate-200 bg-white p-3 md:rounded-2xl md:border">
+      <a href={`https://www.google.com/maps/dir/?api=1&destination=${selected.lat},${selected.lng}`} target="_blank" rel="noreferrer" className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-700 py-3.5 text-sm font-bold text-white"><Navigation size={17} /> Navigate to listing <ExternalLink size={15} /></a>
+    </div>}
   </section>;
 
 
@@ -933,40 +1139,49 @@ export default function Page() {
     <BackBtn onClick={() => nav("home")} label="Back" />
     {success ? <div className="surface rounded-3xl border border-slate-100 bg-white p-8 text-center shadow-sm">
       <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Check size={38} /></div>
-      <h1 className="mt-5 text-2xl font-black">You're live in the demo!</h1>
-      <p className="muted mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-500">Your listing was accepted by the mock API. It isn't saved permanently yet.</p>
+      <h1 className="mt-5 text-2xl font-black">Your listing is saved!</h1>
+      <p className="muted mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-500">It is stored with your account and is available to neighbours browsing its category.</p>
       <button onClick={() => { setSuccess(false); setStep(1); setForm(EMPTY_FORM); nav("home"); }} className="mt-6 rounded-xl bg-teal-600 px-6 py-3 font-bold text-white">Explore Padosi</button>
     </div> : <div className="surface rounded-3xl border border-slate-100 bg-white p-5 shadow-sm sm:p-8">
       <div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-widest text-teal-700">Share with your neighbourhood</p><h1 className="mt-2 text-2xl font-black">Add a listing</h1></div><span className="rounded-full bg-teal-50 px-3 py-2 text-xs font-bold text-teal-700">Step {step} of 3</span></div>
       <div className="mt-5 flex gap-2">{[1, 2, 3].map(n => <div key={n} className={`h-1.5 flex-1 rounded-full ${step >= n ? "bg-teal-600" : "bg-slate-100"}`} />)}</div>
 
       {step === 1 && <div className="mt-7"><h2 className="font-bold">What would you like to share?</h2>
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">{Object.entries(categoryMeta).map(([type, m]) => { const Icon = m.icon; return <button key={type} onClick={() => { setForm(f => ({ ...f, type })); setShareVendorLocation(false); }} className={`rounded-2xl border p-4 text-left ${form.type === type ? "border-teal-500 bg-teal-50" : "border-slate-200"}`}><Icon size={24} style={{ color: m.color }} /><b className="mt-3 block">{m.label}</b><span className="muted mt-1 block text-xs text-slate-500">{m.desc}</span></button>; })}</div>
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">{Object.entries(categoryMeta).map(([type, m]) => { const Icon = m.icon; return <button key={type} onClick={() => {
+          if (type === "vendor") {
+            if (user?.role === "vendor") nav("vendor");
+            else if (user) notify("This account is not a vendor account. Sign out and create a vendor account to set up a dashboard.");
+            else {
+              patchAuth({ mode: "register", role: "vendor", error: "" });
+              nav("login");
+            }
+            return;
+          }
+          setForm(f => ({ ...f, type }));
+        }} className={`rounded-2xl border p-4 text-left ${form.type === type ? "border-teal-500 bg-teal-50" : "border-slate-200"}`}><Icon size={24} style={{ color: m.color }} /><b className="mt-3 block">{m.label}</b><span className="muted mt-1 block text-xs text-slate-500">{m.desc}</span></button>; })}</div>
         <button onClick={() => setStep(2)} className="mt-6 w-full rounded-xl bg-teal-600 py-3.5 font-bold text-white">Continue <ArrowRight size={16} className="ml-1 inline" /></button>
       </div>}
 
       {step === 2 && <div className="mt-7 space-y-4"><h2 className="font-bold">Tell neighbours about it</h2>
-        {FIELDS.map(([key, label]) => <label key={key} className="block text-sm font-semibold">{label}
+        {FIELDS.map(([key, label]) => <label key={key} className="block text-sm font-semibold">{key === "name" ? `${label} · account` : label}
           {key === "category" && form.type === "resource"
             ? <select value={form.category} onChange={setField(key)} className={input}>
               <option value="">Choose a resource type</option>
               {RESOURCE_CATEGORIES.map(category => <option key={category} value={category}>{category}</option>)}
             </select>
-            : <input value={form[key]} onChange={setField(key)} className={input} placeholder={label} />}
+            : <input value={form[key]} onChange={setField(key)} readOnly={key === "name"} className={`${input} ${key === "name" ? "bg-slate-50" : ""}`} placeholder={label} />}
         </label>)}
         <label className="block text-sm font-semibold">Description<textarea value={form.description} onChange={setField("description")} rows={3} className={input} placeholder="What should people know?" /></label>
-        <div className="rounded-xl border border-dashed border-slate-300 p-4 text-center"><Plus className="mx-auto text-slate-400" /><p className="mt-1 text-xs text-slate-500">Photo picker UI demo — upload not connected</p></div>
         <div className="flex gap-3"><button onClick={() => setStep(1)} className="flex-1 rounded-xl border border-slate-200 py-3 font-bold">Back</button><button disabled={!form.name || !form.category || !form.title || !form.description || !form.price} onClick={() => setStep(3)} className="flex-1 rounded-xl bg-teal-600 py-3 font-bold text-white disabled:opacity-40">Continue</button></div>
       </div>}
 
       {step === 3 && <div className="mt-7">
-        <div className="rounded-2xl bg-teal-50 p-5"><ShieldCheck size={28} className="text-teal-700" /><h2 className="mt-3 font-bold text-teal-950">Build trust with verification</h2><p className="mt-2 text-sm leading-6 text-teal-900">This demo shows the verification step only. Don't upload sensitive identity documents; secure verification isn't configured.</p><button onClick={() => notify("Verification is a UI-only demo.")} className="mt-4 w-full rounded-xl border border-teal-200 bg-white py-3 font-bold text-teal-800">Choose document (demo)</button></div>
-        {form.type === "vendor" && <label className="surface mt-4 flex cursor-pointer items-start gap-3 rounded-2xl p-4">
-          <input type="checkbox" checked={shareVendorLocation} onChange={event => setShareVendorLocation(event.target.checked)} className="mt-1 h-4 w-4 accent-teal-700" />
-          <span><span className="flex items-center gap-2 font-bold"><LocateFixed size={16} className="text-teal-700" /> Share this device's live location</span>
-            <span className="muted mt-1 block text-xs leading-5 text-slate-500">Optional. While this page is open, your browser location updates this listing's map pin. Location is not sent to the backend or shared with other visitors; allow location access when prompted.</span>
-          </span>
-        </label>}
+        <div className="rounded-2xl bg-teal-50 p-5"><h2 className="font-bold text-teal-950">Review before publishing</h2>
+          <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+            {[["Publisher", form.name], ["Category", form.category], ["City", form.city], ["Listing", form.title], ["Price / rate", form.price]].map(([label, value]) => <div key={label} className="rounded-xl bg-white/80 p-3"><dt className="text-xs font-semibold text-slate-500">{label}</dt><dd className="mt-1 font-bold">{value}</dd></div>)}
+          </dl>
+          <p className="mt-3 text-sm leading-6 text-teal-900">{form.description}</p>
+        </div>
         <div className="mt-5 flex gap-3"><button onClick={() => setStep(2)} className="flex-1 rounded-xl border border-slate-200 py-3 font-bold">Back</button><button onClick={submitListing} className="flex-1 rounded-xl bg-teal-600 py-3 font-bold text-white">Publish listing</button></div>
       </div>}
     </div>}
@@ -988,6 +1203,13 @@ export default function Page() {
     {auth.step === "creds" ? <>
       <div className="surface mt-5 grid grid-cols-2 gap-1 rounded-xl p-1">{[["login", "Sign in"], ["register", "Create account"]].map(([m, l]) => <button key={m} type="button" onClick={() => { setShowPassword(false); patchAuth({ mode: m, error: "", password: "", passwordConfirm: "" }); }} className={`rounded-lg py-2 text-sm font-bold ${auth.mode === m ? "rounded-lg bg-teal-700 text-white shadow-sm" : "text-slate-500"}`}>{l}</button>)}</div>
       <form onSubmit={submitCreds} className="mt-5 space-y-4">
+        {auth.mode === "register" && <fieldset className="space-y-2">
+          <legend className="text-sm font-semibold">What kind of account are you creating?</legend>
+          <div className="grid grid-cols-2 gap-2">
+            {[["member", "Community member"], ["vendor", "Vendor"]].map(([role, label]) => <button key={role} type="button" onClick={() => patchAuth({ role, error: "" })} aria-pressed={auth.role === role} className={`rounded-xl border px-3 py-3 text-sm font-bold ${auth.role === role ? "border-teal-600 bg-teal-50 text-teal-800" : "border-slate-200 text-slate-600"}`}>{label}</button>)}
+          </div>
+          {auth.role === "vendor" && <p className="muted text-xs leading-5 text-slate-500">After email verification, set up your business profile and open your inventory dashboard.</p>}
+        </fieldset>}
         <label className="block text-sm font-semibold">Email address<input type="email" required autoComplete="email" value={auth.email} onChange={e => patchAuth({ email: e.target.value, error: "" })} className={input} placeholder="you@example.com" /></label>
         {auth.mode === "register" && <label className="block text-sm font-semibold">Unique username
           <div className="mt-1.5 flex items-center gap-2"><span className="text-lg font-bold text-teal-700">@</span><input type="text" required minLength={3} maxLength={24} pattern="[A-Za-z0-9][A-Za-z0-9_.]{1,22}[A-Za-z0-9]" autoComplete="username" value={auth.username} onChange={event => patchAuth({ username: event.target.value.replace(/[^A-Za-z0-9_.]/g, "").toLowerCase(), error: "" })} className={input} placeholder="choose-a-unique-name" /></div>
@@ -1028,8 +1250,65 @@ export default function Page() {
     </form>}
   </div></section>;
 
-  const profileTitle = profileForm.name || user?.email?.split("@")[0] || "Neighbour";
-  const profileUsername = user?.username || profileForm.username || (user?.email ? user.email.split("@")[0].replace(/[^a-zA-Z0-9_.]/g, "") : "neighbour");
+  const vendorDashboard = <section className="mx-auto max-w-4xl">
+    <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+      <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-700">Vendor workspace</p><h1 className="mt-1 text-2xl font-black">Vendor dashboard</h1><p className={sub}>Manage your business profile and keep your available items up to date.</p></div>
+      {vendorProfile && <span className="rounded-full bg-teal-50 px-3 py-2 text-xs font-bold text-teal-800">{vendorProfile.category}</span>}
+    </div>
+    {vendorDashboardLoading && <p role="status" className="surface rounded-xl p-4 text-sm text-slate-600">Loading your saved vendor data…</p>}
+    {vendorDashboardError && <p role="alert" className="mb-4 rounded-xl bg-rose-50 p-4 text-sm font-semibold text-rose-700">{vendorDashboardError}</p>}
+    {vendorFormError && <p role="alert" className="mb-4 rounded-xl bg-rose-50 p-4 text-sm font-semibold text-rose-700">{vendorFormError}</p>}
+    {!vendorDashboardLoading && user?.role !== "vendor" && <div className="surface rounded-2xl p-6">
+      <h2 className="text-lg font-black">Vendor account required</h2>
+      <p className={sub}>Sign in with a vendor account to create a business profile and manage inventory.</p>
+      <button onClick={() => { patchAuth({ mode: "register", role: "vendor", error: "" }); nav("login"); }} className="mt-4 rounded-xl bg-teal-700 px-5 py-3 text-sm font-bold text-white">Create a vendor account</button>
+    </div>}
+    {!vendorDashboardLoading && user?.role === "vendor" && !vendorProfile && <form onSubmit={saveVendorProfile} className="surface rounded-3xl p-5 sm:p-8">
+      <p className="text-xs font-black uppercase tracking-[0.16em] text-teal-700">Step 1 · List your business</p>
+      <h2 className="mt-2 text-xl font-black">Create your vendor profile</h2>
+      <p className={sub}>This is your public vendor identity. Once saved, you can add the items you currently offer.</p>
+      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <label className="block text-sm font-semibold">Business or vendor name<input required minLength={2} maxLength={80} value={vendorProfileForm.business_name} onChange={setVendorProfileField("business_name")} className={input} placeholder="Your shop or service name" /></label>
+        <label className="block text-sm font-semibold">Primary category<select required value={vendorProfileForm.category} onChange={setVendorProfileField("category")} className={input}><option value="">Choose a category</option>{VENDOR_CATEGORIES.map(category => <option key={category} value={category}>{category}</option>)}</select></label>
+        <label className="block text-sm font-semibold sm:col-span-2">City<input required minLength={2} maxLength={80} value={vendorProfileForm.city} onChange={setVendorProfileField("city")} className={input} placeholder="Your service city" /></label>
+        <label className="block text-sm font-semibold sm:col-span-2">About your business<textarea maxLength={800} rows={3} value={vendorProfileForm.description} onChange={setVendorProfileField("description")} className={input} placeholder="Describe what you offer to neighbours" /></label>
+      </div>
+      <button disabled={vendorBusy} className="mt-5 w-full rounded-xl bg-teal-700 py-3.5 font-bold text-white disabled:opacity-50">{vendorBusy ? "Saving…" : "Save vendor profile"}</button>
+    </form>}
+    {!vendorDashboardLoading && vendorProfile && <>
+      <div className="surface rounded-3xl p-5 sm:p-7">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div><p className="text-xs font-black uppercase tracking-widest text-teal-700">Your public vendor listing</p><h2 className="mt-2 text-xl font-black">{vendorProfile.business_name}</h2><p className="muted mt-1 text-sm text-slate-500">{vendorProfile.city} · {vendorProfile.category}</p>{vendorProfile.description && <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{vendorProfile.description}</p>}</div>
+          <span className="rounded-full bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800">Profile saved</span>
+        </div>
+      </div>
+      <form onSubmit={addVendorItem} className="surface mt-5 rounded-3xl p-5 sm:p-7">
+        <p className="text-xs font-black uppercase tracking-widest text-teal-700">Step 2 · Manage your inventory</p>
+        <h2 className="mt-2 text-xl font-black">Add an item to {vendorProfile.category}</h2>
+        <p className={sub}>Items are saved to your vendor account and shown publicly under your business name and chosen category.</p>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <label className="block text-sm font-semibold">Item name<input required minLength={3} maxLength={120} value={vendorItemForm.title} onChange={setVendorItemField("title")} className={input} placeholder="Item or service you have" /></label>
+          <label className="block text-sm font-semibold">Price / rate<input required maxLength={80} value={vendorItemForm.price} onChange={setVendorItemField("price")} className={input} placeholder="₹ price, negotiable, or free" /></label>
+          <label className="block text-sm font-semibold sm:col-span-2">Item details<textarea required minLength={10} maxLength={800} rows={3} value={vendorItemForm.description} onChange={setVendorItemField("description")} className={input} placeholder="Describe condition, options, or service details" /></label>
+          <label className="block text-sm font-semibold">Available quantity<input type="number" min="0" max="100000" required value={vendorItemForm.quantity} onChange={setVendorItemField("quantity")} className={input} /></label>
+        </div>
+        <label className="surface mt-4 flex cursor-pointer items-start gap-3 rounded-xl p-4">
+          <input type="checkbox" checked={vendorItemLocation} onChange={event => setVendorItemLocation(event.target.checked)} className="mt-1 h-4 w-4 accent-teal-700" />
+          <span><span className="font-bold">Add this device location to the map pin</span><span className="muted mt-1 block text-xs leading-5 text-slate-500">Optional. Your browser asks for permission when you save. The coordinates are stored with this item so map visitors can find it.</span></span>
+        </label>
+        <button disabled={vendorBusy} className="mt-4 w-full rounded-xl bg-teal-700 py-3.5 font-bold text-white disabled:opacity-50">{vendorBusy ? "Saving item…" : "Save item to inventory"}</button>
+      </form>
+      <div className="mt-7">
+        <div className="mb-3 flex items-end justify-between gap-3"><div><h2 className="text-lg font-black">Your listed items</h2><p className={sub}>Saved to your account and available across sign-ins.</p></div><span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-700">{vendorItems.length} items</span></div>
+        {vendorItems.length ? <div className="grid gap-3 sm:grid-cols-2">{vendorItems.map(item => <article key={item.id} className="surface rounded-2xl p-4">
+          <div className="flex items-start justify-between gap-3"><div className="min-w-0"><span className="rounded-full bg-teal-50 px-2.5 py-1 text-[10px] font-black uppercase text-teal-800">{item.category}</span><h3 className="mt-3 font-black">{item.title}</h3><p className="muted mt-1 line-clamp-2 text-sm text-slate-500">{item.description}</p></div><button type="button" onClick={() => removeVendorItem(item)} aria-label={`Remove ${item.title}`} className="shrink-0 rounded-lg px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50">Remove</button></div>
+          <div className="mt-4 flex items-center justify-between border-t border-slate-200 pt-3 text-sm"><span className="font-bold">{item.price}</span><span className="muted text-xs text-slate-500">Available: {item.quantity}</span></div>
+        </article>)}</div> : <div className="surface rounded-2xl p-6 text-center"><p className="font-bold">No items listed yet</p><p className={sub}>Add your first item above. It will be saved to your vendor account.</p></div>}
+      </div>
+    </>}
+  </section>;
+
+  const profileTitle = user?.display_name || "Set your display name";
   const profileAvatar = profileForm.image
     ? <img src={profileForm.image} alt={`${profileTitle}'s profile`} className="h-full w-full rounded-full object-cover" />
     : <UserRound size={32} />;
@@ -1039,26 +1318,28 @@ export default function Page() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-teal-100 text-teal-800 shadow-[inset_4px_4px_8px_#c4cdd6,inset_-4px_-4px_8px_#ffffff]">{profileAvatar}</div>
-          <div><h2 className="text-xl font-black">{profileTitle}</h2><p className="mt-1 text-sm font-semibold text-teal-700">@{profileUsername}</p><p className={sub}>{user?.email || "Neighbourhood member · local demo profile"}</p></div>
+          <div><h2 className="text-xl font-black">{profileTitle}</h2>{user && <><p className="mt-1 text-sm font-semibold text-teal-700">{user.username ? `@${user.username}` : "Username not set"}</p><p className={sub}>{user.email}</p></>}</div>
         </div>
-        <button onClick={() => {
-          setProfileForm(current => ({
-            ...current,
-            name: current.name || user?.email?.split("@")[0] || "",
-            username: user?.username || current.username || (user?.email ? user.email.split("@")[0].replace(/[^a-zA-Z0-9_.]/g, "") : ""),
-          }));
+        {user && <button onClick={() => {
+          setProfileForm(current => ({ ...current, name: user.display_name || "" }));
           setProfileEditing(true);
           setProfileSaved(false);
           setProfileImageError("");
-        }} className="surface rounded-xl px-4 py-2.5 text-sm font-bold text-teal-800">Edit profile</button>
+        }} className="surface rounded-xl px-4 py-2.5 text-sm font-bold text-teal-800">Edit profile</button>}
       </div>
-      {profileSaved && <p role="status" className="mt-4 text-xs font-semibold text-emerald-700">Your display profile is saved on this device only.</p>}
-      <div className="mt-7 grid grid-cols-3 gap-3">{STATS.map(([v, l]) => <div key={l} className="surface rounded-2xl p-4 text-center"><b className="text-xl">{v}</b><span className="muted mt-1 block text-xs text-slate-500">{l}</span></div>)}</div>
+      {profileSaved && <p role="status" className="mt-4 text-xs font-semibold text-emerald-700">Your display name is saved to your account.</p>}
+      {user && <dl className="mt-7 grid gap-3 sm:grid-cols-2">
+        <div className="surface rounded-xl p-4"><dt className="text-xs font-semibold text-slate-500">Display name</dt><dd className="mt-1 font-bold">{user.display_name || "Not set"}</dd></div>
+        <div className="surface rounded-xl p-4"><dt className="text-xs font-semibold text-slate-500">Username</dt><dd className="mt-1 font-bold">{user.username ? `@${user.username}` : "Not set"}</dd></div>
+        <div className="surface rounded-xl p-4"><dt className="text-xs font-semibold text-slate-500">Email</dt><dd className="mt-1 break-all font-bold">{user.email}</dd></div>
+        <div className="surface rounded-xl p-4"><dt className="text-xs font-semibold text-slate-500">Account type</dt><dd className="mt-1 font-bold capitalize">{user.role}</dd></div>
+      </dl>}
+      {user?.role === "vendor" && <button onClick={() => nav("vendor")} className="mt-5 w-full rounded-xl bg-teal-700 py-3 font-bold text-white">Open vendor dashboard</button>}
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
-        {user ? <button onClick={logout} className="surface flex items-center justify-center gap-2 rounded-xl py-3 font-bold"><LogOut size={17} /> Sign out</button> : <button onClick={() => nav("login")} className="rounded-xl bg-teal-700 py-3 font-bold text-white">Sign in or create account</button>}
+        {authRestoring ? <p role="status" className="surface rounded-xl py-3 text-center text-sm text-slate-500">Checking your sign-in…</p> : user ? <button onClick={logout} className="surface flex items-center justify-center gap-2 rounded-xl py-3 font-bold"><LogOut size={17} /> Sign out</button> : <button onClick={() => nav("login")} className="rounded-xl bg-teal-700 py-3 font-bold text-white">Sign in or create account</button>}
         <button onClick={() => setDark(v => !v)} className="surface flex items-center justify-center gap-2 rounded-xl py-3 font-bold"><span className="flex items-center gap-2">{dark ? <Sun size={18} /> : <Moon size={18} />} Appearance</span><span className="text-xs text-slate-500">{dark ? "Dark" : "Light"}</span></button>
       </div>
-      <p className="muted mt-5 text-xs leading-5 text-slate-500">Your unique username is attached to your account. Display name and avatar are saved only in this browser.</p>
+      {user && <p className="muted mt-5 text-xs leading-5 text-slate-500">Your username and display name are saved to your account. Your profile photo is kept in this browser.</p>}
     </div>
   </section>;
 
@@ -1075,12 +1356,8 @@ export default function Page() {
       </div>
       <div className="mt-6 space-y-4">
         <label className="block text-sm font-semibold">Display name<input required maxLength={60} value={profileForm.name} onChange={updateProfileField("name")} className={input} placeholder="How neighbours should address you" /></label>
-        <label className="block text-sm font-semibold">Unique username
-          <div className="mt-1.5 flex items-center gap-2"><span className="text-lg font-bold text-teal-700">@</span><input required minLength={3} maxLength={24} pattern="[A-Za-z0-9][A-Za-z0-9_.]{1,22}[A-Za-z0-9]" value={user?.username || profileForm.username} disabled={Boolean(user?.username)} onChange={event => setProfileForm(current => ({ ...current, username: event.target.value.replace(/[^A-Za-z0-9_.]/g, "").toLowerCase() }))} className={input} placeholder="yourname" /></div>
-          <span className="muted mt-1 block text-xs text-slate-500">{user?.username ? "This account ID was reserved during registration." : "3–24 characters; letters, numbers, periods, and underscores."}</span>
-        </label>
       </div>
-      <div className="mt-6 flex gap-3"><button type="button" onClick={() => setProfileEditing(false)} className="surface flex-1 rounded-xl py-3 font-bold">Cancel</button><button type="submit" className="flex-1 rounded-xl bg-teal-700 py-3 font-bold text-white">Save on this device</button></div>
+      <div className="mt-6 flex gap-3"><button type="button" onClick={() => setProfileEditing(false)} className="surface flex-1 rounded-xl py-3 font-bold">Cancel</button><button type="submit" className="flex-1 rounded-xl bg-teal-700 py-3 font-bold text-white">Save profile</button></div>
     </form>
   </section>;
 
@@ -1097,7 +1374,7 @@ export default function Page() {
     </div>
   </section>;
 
-  const views = { home, map: mapPage, detail, add: addPage, profile: profileEditing ? profileEdit : profile, login: loginPage, recovery: recoveryPage };
+  const views = { home, map: mapPage, detail, add: addPage, profile: profileEditing ? profileEdit : profile, vendor: vendorDashboard, login: loginPage, recovery: recoveryPage };
 
   return <main className="min-h-screen pb-24 md:pb-8">
     {topbar}
