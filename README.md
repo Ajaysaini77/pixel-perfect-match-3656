@@ -1,5 +1,5 @@
 <<<<<<< HEAD
-# Padosi — Full-stack hyperlocal discovery demo
+# Nearhood — Full-stack hyperlocal discovery demo
 
 Stack:
 - Frontend: Next.js App Router, JavaScript, Tailwind CSS, lucide-react, Leaflet
