@@ -1,5 +1,5 @@
 """
-Padosi authentication:
+Nearhood authentication:
 Email + password for sign-in; registration uses a six-digit email OTP.
 
 User accounts are persisted in the configured SQL database. OTPs remain
@@ -172,9 +172,9 @@ def issue_otp(email: str) -> tuple[bool, int, bool]:
 
     email_sent = send_mail(
         email,
-        "Your Padosi verification code",
+        "Your Nearhood verification code",
         (
-            f"Your Padosi verification code is {otp}.\n"
+            f"Your Nearhood verification code is {otp}.\n"
             "It expires in 5 minutes.\n"
             "If this wasn't you, ignore this email."
         ),

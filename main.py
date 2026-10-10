@@ -18,7 +18,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Padosi API",
+    title="Nearhood API",
     version="0.1.0",
     description="API for hyperlocal discovery, saved listings, and vendor inventory.",
     lifespan=lifespan,
@@ -180,7 +180,7 @@ SAMPLE_LISTINGS = [
 
 @app.get("/")
 def root():
-    return {"message": "Padosi API is running", "docs": "/docs"}
+    return {"message": "Nearhood API is running", "docs": "/docs"}
 
 @app.get("/api/health")
 def health():
